@@ -8,9 +8,12 @@ from tkinter import messagebox, simpledialog, ttk
 
 from cryptography.exceptions import InvalidTag
 
-from addresses import receiving_address
+from addresses import encode_p2wpkh, receiving_public_key
 from history import read_history
-from recovery import WORD_COUNTS, create_recovery, read_recovery, save_recovery, validate_phrase
+from recovery import (
+    RECOVERY_FILE, WORD_COUNTS, create_recovery, read_public_address, read_recovery,
+    save_public_address, save_recovery, validate_phrase,
+)
 from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
 from signing import check_acceptance, sign_send
 
@@ -158,6 +161,7 @@ class WalletApp(tk.Tk):
         self.receipts.pack(side="left", fill="both", expand=True)
         self.status = tk.StringVar()
         ttk.Label(panel, textvariable=self.status, wraplength=550).pack(anchor="w")
+        self.after_idle(self.open_public_view)
         self.after(15_000, self.poll_wallet)
 
     def build_history_tab(self, panel):
@@ -275,7 +279,7 @@ class WalletApp(tk.Tk):
             return
         try:
             phrase = validate_phrase(phrase)
-            address = receiving_address(phrase)
+            public_key = receiving_public_key(phrase)
         except ValueError as error:
             messagebox.showerror("Restaurar carteira", str(error), parent=self)
             return
@@ -287,8 +291,7 @@ class WalletApp(tk.Tk):
         except (OSError, ValueError) as error:
             messagebox.showerror("Restaurar carteira", str(error), parent=self)
             return
-        self.set_address(address)
-        self.status.set("Carteira de teste restaurada.")
+        self.show_public_key(public_key, "Carteira de teste restaurada.")
 
     def unlock_phrase(self, parent=None):
         parent = parent or self
@@ -335,11 +338,29 @@ class WalletApp(tk.Tk):
 
     def show_address(self, phrase):
         try:
-            self.set_address(receiving_address(phrase))
+            public_key = receiving_public_key(phrase)
         except ValueError as error:
             self.status.set(str(error))
             return
-        self.status.set("Primeiro endereço da carteira em regtest.")
+        self.show_public_key(public_key, "Primeiro endereço da carteira em regtest.")
+
+    def show_public_key(self, public_key, message):
+        try:
+            save_public_address(public_key)
+        except OSError as error:
+            message = f"Não foi possível salvar o acesso sem senha: {error}"
+        self.set_address(encode_p2wpkh(public_key, "bcrt"))
+        self.status.set(message)
+
+    def open_public_view(self):
+        address = read_public_address()
+        if address is not None:
+            self.set_address(address)
+        elif RECOVERY_FILE.is_file():
+            self.status.set(
+                "Clique em Mostrar endereço de recebimento para habilitar a consulta sem senha."
+            )
+        return address
 
     def set_address(self, address):
         if self.address.get() != address:
@@ -497,6 +518,8 @@ class WalletApp(tk.Tk):
         self.status.set(f"Consulta concluída no bloco {height}.")
 
     def receive(self):
+        if self.open_public_view() is not None:
+            return
         phrase = self.unlock_phrase()
         if phrase is not None:
             self.show_address(phrase)

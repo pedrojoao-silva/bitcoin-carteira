@@ -68,6 +68,10 @@ def encode_p2wpkh(public_key, prefix):
     return prefix + "1" + "".join(BECH32_ALPHABET[group] for group in payload)
 
 
-def receiving_address(phrase):
+def receiving_public_key(phrase):
     seed = Mnemonic.to_seed(phrase)
-    return encode_p2wpkh(derive_public_key(seed, RECEIVING_PATH), "bcrt")
+    return derive_public_key(seed, RECEIVING_PATH)
+
+
+def receiving_address(phrase):
+    return encode_p2wpkh(receiving_public_key(phrase), "bcrt")

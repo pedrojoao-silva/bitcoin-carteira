@@ -1,15 +1,19 @@
 """Generate and encrypt a local BIP39 recovery phrase for the regtest prototype."""
 
 import base64
+import hashlib
 import json
 import os
 import secrets
 import tempfile
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from mnemonic import Mnemonic
+
+from addresses import encode_p2wpkh
 
 STRENGTH = {12: 128, 15: 160, 18: 192, 21: 224, 24: 256}
 WORD_COUNTS = tuple(STRENGTH)
@@ -55,15 +59,45 @@ def save_recovery(phrase, password, path=RECOVERY_FILE):
     for name, value in (("salt", salt), ("nonce", nonce), ("ciphertext", encrypted)):
         record[name] = base64.b64encode(value).decode("ascii")
 
+    write_record(path, record)
+
+
+def write_record(path, record, replace=False):
     fd, temporary = tempfile.mkstemp(dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as file:
             json.dump(record, file)
             file.flush()
             os.fsync(file.fileno())
-        os.link(temporary, path)
+        if replace:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
     finally:
-        os.unlink(temporary)
+        Path(temporary).unlink(missing_ok=True)
+
+
+def save_public_address(public_key, path=RECOVERY_FILE):
+    record = {
+        "recovery_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "public_key": public_key.hex(),
+    }
+    write_record(path.with_suffix(".public.json"), record, replace=True)
+
+
+def read_public_address(path=RECOVERY_FILE):
+    try:
+        record = json.loads(path.with_suffix(".public.json").read_text(encoding="utf-8"))
+        recovery_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if record["recovery_hash"] != recovery_hash:
+            return None
+        public_key = bytes.fromhex(record["public_key"])
+        if len(public_key) != 33 or public_key[0] not in (2, 3):
+            return None
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256K1(), public_key)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return encode_p2wpkh(public_key, "bcrt")
 
 
 def read_recovery(password, path=RECOVERY_FILE):

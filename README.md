@@ -33,9 +33,14 @@ com a senha local. A senha do arquivo é independente da frase BIP39.
 
 ## Endereço e restauração
 
-**Mostrar endereço de recebimento** desbloqueia o arquivo local e deriva o
-primeiro endereço P2WPKH sempre pelo caminho BIP84 `m/84'/1'/0'/0/0`,
-com prefixo `bcrt1q`. O protótipo usa a passphrase BIP39 vazia. A senha
+O aplicativo abre com o endereço de recebimento, o saldo e o histórico
+sem pedir senha. Um arquivo auxiliar local guarda a chave pública do primeiro
+endereço P2WPKH, derivado pelo caminho BIP84 `m/84'/1'/0'/0/0`, com
+prefixo `bcrt1q`. As versões anteriores da carteira precisam de um
+desbloqueio em **Mostrar endereço de recebimento** para gravar esse arquivo.
+
+A senha local continua necessária para assinar envios e consultar a frase
+salva no protótipo. O protótipo usa a passphrase BIP39 vazia. A senha
 local protege o arquivo e pode mudar sem alterar o endereço.
 
 **Restaurar com palavras** aceita uma frase de teste da lista inglesa BIP39,
