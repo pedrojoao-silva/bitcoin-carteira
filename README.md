@@ -51,6 +51,8 @@ XDG_DATA_HOME="$(mktemp -d)" python3 app.py
 ## Saldo e recebimentos em regtest
 
 Mostre o endereço de recebimento e clique em **Consultar saldo confirmado**.
+O saldo em sats aparece no topo da janela e é atualizado automaticamente
+enquanto o endereço está visível.
 O Bitcoin Core consulta as saídas ainda não gastas desse endereço no bloco
 indicado. A tabela mostra o identificador da transação e da saída, o valor em
 sats e as confirmações. O total pode incluir recompensas de mineração ainda
@@ -87,6 +89,19 @@ verifica a aceitação da transação assinada. Clique em **Sim** na janela
 **Confirmar envio** para transmiti-la. A janela mostra o txid retornado
 pelo nó. Se a transmissão ficar sem confirmação, consulte esse txid antes
 de criar outro envio.
+
+## Histórico e confirmação no destino
+
+A aba **Histórico** consulta uma carteira de observação no Bitcoin Core.
+Ela registra somente o endereço público, mantém os pagamentos que já foram
+gastos e acompanha a mempool e os blocos. Na primeira abertura, o nó pesquisa
+os blocos anteriores para recuperar transações já realizadas. Os registros
+voltam a aparecer depois de fechar e reabrir o aplicativo.
+
+Um envio aparece como **Pendente** quando está na mempool e **Confirmado no
+destino** quando entra em um bloco. Isso confirma o pagamento no endereço
+informado. A aba mostra o valor, a taxa e as confirmações. Selecione a linha
+para ver o endereço e o txid.
 
 Para testar de ponta a ponta em regtest, gere 101 blocos para o endereço
 de origem, envie para outro endereço regtest e mine mais um bloco. Confira

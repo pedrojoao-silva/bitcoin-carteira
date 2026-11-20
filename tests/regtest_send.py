@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import app
 from addresses import receiving_address
+from history import read_history, watch_wallet
 from recovery import create_recovery
 from sending import prepare_send
 from signing import check_acceptance, sign_send
@@ -39,6 +40,7 @@ def exercise(rpc, directory):
         rpc("generatetoaddress", "101", source, timeout=30)
         initial_balance = confirmed_sats(source)
         assert confirmed_sats(destination) == 0
+        watch_wallet(rpc, source)
 
         draft = prepare_send(rpc, app.scan_address, source, destination, amount)
         signed = sign_send(rpc, draft, source, phrases[0])
@@ -53,6 +55,9 @@ def exercise(rpc, directory):
         check_acceptance(rpc, signed)
         assert rpc("sendrawtransaction", signed.raw) == signed.txid
         assert signed.txid in json.loads(rpc("getrawmempool"))
+        pending = next(entry for entry in read_history(rpc, source) if entry.txid == signed.txid)
+        assert pending.status == "Pendente"
+        assert (pending.amount, pending.fee, pending.addresses) == (amount, draft.fee, (destination,))
 
         block_hash, = json.loads(rpc("generatetoaddress", "1", miner, timeout=30))
         assert signed.txid in json.loads(rpc("getblock", block_hash))["tx"]
@@ -61,6 +66,11 @@ def exercise(rpc, directory):
         assert initial_balance - confirmed_sats(source) == draft.total, (
             "O débito na origem divergiu do valor mais a taxa."
         )
+        confirmed = next(entry for entry in read_history(rpc, source) if entry.txid == signed.txid)
+        assert (confirmed.status, confirmed.confirmations) == ("Confirmado no destino", 1)
+        # A new watch wallet must find the already-mined payment by rescanning.
+        received = next(entry for entry in read_history(rpc, destination) if entry.txid == signed.txid)
+        assert (received.kind, received.amount, received.confirmations) == ("Recebido", amount, 1)
         print(f"Envio minerado. Valor: {amount} sats. Taxa: {draft.fee} sats. TXID: {signed.txid}")
 
 
@@ -80,8 +90,12 @@ def main():
                 stdout=log, stderr=subprocess.STDOUT,
             )
 
-            def rpc(method, *args, timeout=5, wait=False):
+            def rpc(method, *args, timeout=5, wait=False, wallet=None, named=False):
                 command = ["bitcoin-cli", *common, "-rpcconnect=127.0.0.1", f"-rpcclienttimeout={timeout}"]
+                if wallet is not None:
+                    command.append(f"-rpcwallet={wallet}")
+                if named:
+                    command.append("-named")
                 if wait:
                     command.extend(["-rpcwait", f"-rpcwaittimeout={timeout}"])
                 result = subprocess.run(
