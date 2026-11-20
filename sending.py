@@ -131,10 +131,15 @@ def prepare_send(rpc, scan, account, destination, amount):
     actual_outputs = {
         item["scriptPubKey"]["address"]: decode_amount(item["value"]) for item in decoded["vout"]
     }
+    destination_script_matches = any(
+        item["scriptPubKey"]["address"] == destination and item["scriptPubKey"]["hex"] == script
+        for item in decoded["vout"]
+    )
     if (
         actual_inputs != outpoints
         or len(decoded["vout"]) != len(outputs)
         or actual_outputs != outputs
+        or not destination_script_matches
     ):
         raise RuntimeError("A transação preparada diverge das entradas ou saídas esperadas.")
     fee = input_total - sum(actual_outputs.values())

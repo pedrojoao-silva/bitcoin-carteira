@@ -136,6 +136,29 @@ def forget_session(path=RECOVERY_FILE):
     path.with_suffix(".session.json").unlink(missing_ok=True)
 
 
+def remember_pending_txid(txid, path=RECOVERY_FILE):
+    if not re.fullmatch(r"[0-9a-f]{64}", txid):
+        raise ValueError("Identificador de transação inválido.")
+    record = {"txid": txid, "recovery_hash": hashlib.sha256(path.read_bytes()).hexdigest()}
+    write_record(path.with_suffix(".pending.json"), record, replace=True)
+
+
+def read_pending_txid(path=RECOVERY_FILE):
+    try:
+        record = json.loads(path.with_suffix(".pending.json").read_text(encoding="utf-8"))
+        if record["recovery_hash"] != hashlib.sha256(path.read_bytes()).hexdigest():
+            return None
+        txid = record["txid"]
+        return txid if re.fullmatch(r"[0-9a-f]{64}", txid) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def forget_pending_txid(txid, path=RECOVERY_FILE):
+    if read_pending_txid(path) == txid:
+        path.with_suffix(".pending.json").unlink(missing_ok=True)
+
+
 def read_recovery(password, path=RECOVERY_FILE):
     record = json.loads(path.read_text(encoding="utf-8"))
     if record["version"] != 1:

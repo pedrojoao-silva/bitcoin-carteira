@@ -76,3 +76,17 @@ class OnboardingTests(unittest.TestCase):
             app.WalletApp.resume_session(window)
         window.show_wallet.assert_called_once_with(account.first_address, account)
         window.unlock_phrase.assert_not_called()
+
+    def test_signed_out_wallet_requires_manual_unlock(self):
+        window = Mock()
+        window.unlock_phrase.return_value = None
+        with (
+            patch("app.has_open_session", return_value=False),
+            patch("app.read_public_view") as read_view,
+        ):
+            app.WalletApp.resume_session(window)
+            app.WalletApp.open_existing(window)
+        window.unlock_phrase.assert_called_once()
+        read_view.assert_not_called()
+        window.show_wallet.assert_not_called()
+        window.start_session.assert_not_called()

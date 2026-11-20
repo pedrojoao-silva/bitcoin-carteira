@@ -91,8 +91,10 @@ precisa de 100 confirmações para entrar na seleção.
 Depois da revisão, digite a senha para assinar localmente. O Bitcoin Core
 verifica a aceitação da transação assinada. Clique em **Sim** na janela
 **Confirmar envio** para transmiti-la. A janela mostra o txid retornado
-pelo nó. Se a transmissão ficar sem confirmação, consulte esse txid antes
-de criar outro envio.
+pelo nó. Se a conexão cair durante a transmissão, o aplicativo guarda o
+txid do envio e mantém o aviso ao reabrir a carteira. O aviso é removido
+quando o nó reconhece a transação na mempool ou em um bloco. Confira o
+histórico antes de preparar um novo pagamento.
 
 ## Histórico e confirmação no destino
 
@@ -113,12 +115,13 @@ o recebimento no destino e atualize o saldo da carteira. Use **outro**
 endereço para minerar esse último bloco, para que a recompensa não se some
 ao saldo de origem durante a conferência.
 
-### Teste automatizado de envio
+### Testes de cadastro, sessão e envio
 
 Com `bitcoind` e `bitcoin-cli` no PATH e o ambiente virtual ativo, execute
 na raiz do projeto:
 
 ```sh
+python3 -m unittest discover -s tests -p 'test_*.py'
 PYTHONPATH=. python3 tests/regtest_send.py
 ```
 

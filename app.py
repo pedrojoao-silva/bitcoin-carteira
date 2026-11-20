@@ -11,14 +11,31 @@ from cryptography.exceptions import InvalidTag
 from addresses import PublicAccount, public_account
 from history import read_history
 from recovery import (
-    RECOVERY_FILE, WORD_COUNTS, forget_session, generate_phrase, has_open_session,
-    read_public_view, read_recovery, remember_session, save_public_account, save_recovery,
+    RECOVERY_FILE, WORD_COUNTS, forget_pending_txid, forget_session, generate_phrase,
+    has_open_session, read_pending_txid, read_public_view, read_recovery, remember_pending_txid,
+    remember_session, save_public_account, save_recovery,
 )
 from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
 from signing import check_acceptance, sign_send
 from watching import next_wallet_address, watch_wallet
 
 SCAN_LOCK = Lock()
+
+
+class BroadcastUncertain(RuntimeError):
+    pass
+
+
+def broadcast_send(signed):
+    check_network()
+    remember_pending_txid(signed.txid)
+    try:
+        txid = rpc("sendrawtransaction", signed.raw)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        raise BroadcastUncertain(str(error)) from error
+    if txid != signed.txid:
+        raise BroadcastUncertain("O nó retornou um identificador inesperado.")
+    return txid
 
 
 def rpc(method, *args, timeout=2, wallet=None, named=False):
@@ -160,6 +177,8 @@ class WalletApp(tk.Tk):
         self.receipts.pack(side="left", fill="both", expand=True)
         self.status = tk.StringVar()
         ttk.Label(panel, textvariable=self.status, wraplength=550).pack(anchor="w")
+        self.pending_notice = tk.StringVar()
+        ttk.Label(panel, textvariable=self.pending_notice, wraplength=550).pack(anchor="w")
         self.show_entry()
         self.after_idle(self.resume_session)
         self.after(15_000, self.poll_wallet)
@@ -188,6 +207,7 @@ class WalletApp(tk.Tk):
         self.entry_panel.pack_forget()
         self.wallet_panel.pack(fill="both", expand=True)
         self.set_address(address, account)
+        self.show_pending_notice()
 
     def resume_session(self):
         if has_open_session():
@@ -233,7 +253,21 @@ class WalletApp(tk.Tk):
         self.show_history_details()
         self.history_status.set("Aguardando consulta do histórico.")
         self.status.set("")
+        self.pending_notice.set("")
         self.show_entry()
+
+    def show_pending_notice(self):
+        txid = read_pending_txid()
+        self.pending_notice.set(
+            f"Confira o envio anterior no histórico antes de reenviar.\n{txid}" if txid else ""
+        )
+
+    def mark_broadcast_known(self, txid):
+        try:
+            forget_pending_txid(txid)
+        except OSError as error:
+            self.status.set(f"Não foi possível limpar o aviso de envio: {error}")
+        self.show_pending_notice()
 
     def build_history_tab(self, panel):
         self.history_status = tk.StringVar(value="Mostre o endereço para consultar o histórico.")
@@ -306,6 +340,12 @@ class WalletApp(tk.Tk):
             selected = self.history_list.selection()
             self.history_list.delete(*self.history_list.get_children())
             self.history_entries = {entry.txid: entry for entry in result}
+            pending_txid = read_pending_txid()
+            pending_entry = self.history_entries.get(pending_txid)
+            if pending_entry and (
+                pending_entry.status == "Pendente" or pending_entry.confirmations > 0
+            ):
+                self.mark_broadcast_known(pending_txid)
             for entry in result:
                 self.history_list.insert("", "end", iid=entry.txid, values=(
                     entry.kind, entry.amount, entry.fee if entry.fee is not None else "—",
@@ -468,6 +508,15 @@ class WalletApp(tk.Tk):
         run_node_task(self, calculate, show)
 
     def open_send(self):
+        pending_txid = read_pending_txid()
+        if pending_txid and not messagebox.askyesno(
+            "Envio anterior sem confirmação",
+            f"O nó ainda não confirmou a transmissão anterior.\n{pending_txid}\n\n"
+            "Você verificou esse envio e quer preparar um novo pagamento?",
+            default=messagebox.NO, parent=self,
+        ):
+            self.refresh_history()
+            return
         window = tk.Toplevel(self)
         window.title("Preparar envio · regtest")
         window.transient(self)
@@ -528,23 +577,23 @@ class WalletApp(tk.Tk):
                 status.set(f"Transmitindo…\n{result.txid}")
                 window.protocol("WM_DELETE_WINDOW", lambda: None)
 
-                def broadcast():
-                    check_network()
-                    txid = rpc("sendrawtransaction", result.raw)
-                    if txid != result.txid:
-                        raise RuntimeError("O nó retornou um identificador inesperado.")
-                    return txid
-
                 def show_txid(txid):
                     window.protocol("WM_DELETE_WINDOW", window.destroy)
-                    if isinstance(txid, Exception):
+                    if isinstance(txid, BroadcastUncertain):
                         status.set(f"Transmissão sem confirmação. Consulte o txid antes de reenviar.\n"
                                    f"{result.txid}\n{txid}")
+                        self.show_pending_notice()
+                        self.refresh_history()
+                        return
+                    if isinstance(txid, Exception):
+                        status.set(f"O envio parou antes da transmissão.\n{txid}")
+                        set_controls("normal")
                         return
                     status.set(f"Transação enviada.\n{txid}")
+                    self.mark_broadcast_known(txid)
                     self.refresh_receipts()
 
-                run_node_task(window, broadcast, show_txid)
+                run_node_task(window, lambda: broadcast_send(result), show_txid)
 
             run_node_task(window, sign, confirm)
 
