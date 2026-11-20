@@ -1,6 +1,6 @@
 # Carteira Bitcoin
 
-Protótipo desktop para Linux com Python e Tkinter. A interface gera e restaura carteiras de teste BIP39 e exibe o primeiro endereço SegWit em regtest.
+Protótipo desktop para Linux com Python e Tkinter. A interface cria e abre carteiras de teste BIP39 e exibe endereços SegWit em regtest.
 
 ## Executar
 
@@ -18,50 +18,43 @@ Abra o aplicativo na sessão gráfica:
 python3 app.py
 ```
 
-A geração, a restauração e a exibição do endereço funcionam sem nó.
+A criação, a abertura e a exibição do endereço salvo funcionam sem nó.
 Para verificar o nó ou consultar o saldo, inicie o Bitcoin Core com
 `bitcoind -regtest -listen=0 -connect=0`.
 
-## Frase de recuperação
+## Criar e abrir a carteira
 
-Escolha 12, 15, 18, 21 ou 24 palavras e clique em **Gerar frase de teste**. A frase segue
-BIP39, com a lista inglesa, e é gerada localmente. A senha local deriva a chave
-com scrypt. O aplicativo salva a frase com AES-256-GCM em
-`~/.local/share/bitcoin-carteira/regtest-recovery.json` (ou sob
-`XDG_DATA_HOME`, quando definido). **Ver frase salva** reabre o arquivo
-com a senha local. A senha do arquivo é independente da frase BIP39.
+Na tela inicial, escolha **Criar carteira** ou **Abrir carteira existente**.
+Na criação, selecione 12, 15, 18, 21 ou 24 palavras e defina uma senha local.
+Anote a frase BIP39 exibida e digite as palavras na mesma ordem para concluir.
+O aplicativo só grava a carteira após essa confirmação. Guarde a frase
+anotada. A interface exibe as palavras somente na criação.
 
-## Endereço e restauração
+A senha local deriva a chave com scrypt. O aplicativo salva a frase com
+AES-256-GCM em `~/.local/share/bitcoin-carteira/regtest-recovery.json`
+(ou sob `XDG_DATA_HOME`, quando definido). O arquivo salvo permite abrir
+a carteira existente com a senha local. Depois de abrir a carteira, o
+aplicativo lembra a sessão de consulta neste computador e pede a senha
+novamente para assinar cada envio.
 
-O aplicativo abre com o endereço de recebimento, o saldo e o histórico
-sem pedir senha. Um arquivo auxiliar local guarda a conta pública BIP84 e o
-endereço exibido. O primeiro endereço P2WPKH continua no caminho
-`m/84'/1'/0'/0/0`, com prefixo `bcrt1q`. As versões anteriores da carteira
-precisam de um desbloqueio em **Mostrar endereço de recebimento** para
-habilitar os novos endereços e o troco separado.
+**Sair da carteira** encerra a sessão, limpa o endereço, o saldo e o histórico
+da tela e volta para a entrada. Os arquivos da carteira permanecem
+disponíveis para a próxima abertura.
+
+## Endereços
+
+Um arquivo auxiliar local guarda a conta pública BIP84 e o endereço exibido.
+O primeiro endereço P2WPKH usa o caminho `m/84'/1'/0'/0/0` e o prefixo
+`bcrt1q`. O protótipo usa a passphrase BIP39 vazia.
 
 Com o nó regtest em execução, clique em **Novo endereço** para receber
 em outro endereço da mesma carteira. O saldo inclui os endereços anteriores
 e os de troco. O protótipo monitora os índices de 0 a 999 em cada ramo BIP84
 e só entrega novos endereços dentro dessa faixa.
 
-A senha local continua necessária para assinar envios e consultar a frase
-salva no protótipo. O protótipo usa a passphrase BIP39 vazia. A senha
-local protege o arquivo e pode mudar sem alterar o endereço.
-
-**Restaurar com palavras** aceita uma frase de teste da lista inglesa BIP39,
-valida o checksum e salva a frase com uma nova senha local. Use um perfil
-de dados vazio para restaurar. Uma frase salva nunca é sobrescrita. Para
-experimentar a restauração sem alterar o perfil existente, abra o aplicativo
-com um diretório de dados temporário:
-
-```sh
-XDG_DATA_HOME="$(mktemp -d)" python3 app.py
-```
-
 ## Saldo e recebimentos em regtest
 
-Mostre o endereço de recebimento e clique em **Consultar saldo confirmado**.
+Abra a carteira e clique em **Consultar saldo confirmado** para atualizar manualmente.
 O saldo em sats aparece no topo da janela e é atualizado automaticamente
 enquanto o endereço está visível.
 O Bitcoin Core consulta as saídas ainda não gastas desse endereço no bloco
@@ -80,7 +73,7 @@ Atualize o saldo. A recompensa deve aparecer na tabela com uma confirmação.
 
 ## Preparar envio em regtest
 
-Mostre o endereço de recebimento e clique em **Preparar envio de teste**.
+Abra a carteira e clique em **Preparar envio de teste**.
 Informe outro endereço regtest e um valor de pelo menos 546 sats, o limite
 conservador deste protótipo.
 

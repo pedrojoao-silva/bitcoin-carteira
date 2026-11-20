@@ -27,11 +27,15 @@ def derive_key(password, salt):
     return Scrypt(salt=salt, length=32, n=2**17, r=8, p=1).derive(password.encode("utf-8"))
 
 
-def create_recovery(words, password, path=RECOVERY_FILE):
+def generate_phrase(words):
     if words not in STRENGTH:
         sizes = ", ".join(map(str, WORD_COUNTS))
         raise ValueError(f"Escolha uma destas quantidades de palavras: {sizes}.")
-    phrase = Mnemonic("english").generate(strength=STRENGTH[words])
+    return Mnemonic("english").generate(strength=STRENGTH[words])
+
+
+def create_recovery(words, password, path=RECOVERY_FILE):
+    phrase = generate_phrase(words)
     save_recovery(phrase, password, path)
     return phrase
 
@@ -113,6 +117,23 @@ def read_public_view(path=RECOVERY_FILE):
     except (OSError, ValueError, KeyError, TypeError):
         return None
     return encode_p2wpkh(public_key, "bcrt"), None
+
+
+def remember_session(path=RECOVERY_FILE):
+    record = {"recovery_hash": hashlib.sha256(path.read_bytes()).hexdigest()}
+    write_record(path.with_suffix(".session.json"), record, replace=True)
+
+
+def has_open_session(path=RECOVERY_FILE):
+    try:
+        record = json.loads(path.with_suffix(".session.json").read_text(encoding="utf-8"))
+        return record["recovery_hash"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def forget_session(path=RECOVERY_FILE):
+    path.with_suffix(".session.json").unlink(missing_ok=True)
 
 
 def read_recovery(password, path=RECOVERY_FILE):

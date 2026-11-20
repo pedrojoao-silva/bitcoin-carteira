@@ -11,8 +11,8 @@ from cryptography.exceptions import InvalidTag
 from addresses import PublicAccount, public_account
 from history import read_history
 from recovery import (
-    RECOVERY_FILE, WORD_COUNTS, create_recovery, read_public_view, read_recovery,
-    save_public_account, save_recovery, validate_phrase,
+    RECOVERY_FILE, WORD_COUNTS, forget_session, generate_phrase, has_open_session,
+    read_public_view, read_recovery, remember_session, save_public_account, save_recovery,
 )
 from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
 from signing import check_acceptance, sign_send
@@ -101,8 +101,10 @@ class WalletApp(tk.Tk):
         self.title("Carteira Bitcoin")
         self.geometry("790x670")
         self.minsize(620, 560)
-        panel = ttk.Frame(self, padding=24)
-        panel.pack(fill="both", expand=True)
+        self.entry_panel = self.build_entry_panel()
+        self.wallet_panel = ttk.Frame(self, padding=24)
+        self.session_version = 0
+        panel = self.wallet_panel
         ttk.Label(panel, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
         ttk.Label(panel, text="Rede local de testes · regtest").pack(anchor="w", pady=(4, 20))
         ttk.Label(panel, text="Saldo confirmado · regtest").pack(anchor="w")
@@ -110,28 +112,12 @@ class WalletApp(tk.Tk):
         ttk.Label(panel, textvariable=self.balance, font=("TkDefaultFont", 28, "bold")).pack(
             anchor="w", pady=(0, 12)
         )
-        phrase_controls = ttk.Frame(panel)
-        phrase_controls.pack(fill="x", pady=(0, 12))
-        self.word_count = tk.StringVar(value="12")
-        ttk.Label(phrase_controls, text="Palavras").pack(side="left")
-        ttk.Combobox(
-            phrase_controls, values=WORD_COUNTS, textvariable=self.word_count,
-            state="readonly", width=4,
-        ).pack(side="left", padx=6)
-        ttk.Button(phrase_controls, text="Gerar frase de teste", command=self.create_phrase).pack(
-            side="left", padx=4
-        )
-        ttk.Button(phrase_controls, text="Ver frase salva", command=self.show_saved_phrase).pack(
-            side="left"
-        )
-        ttk.Button(
-            panel, text="Restaurar com palavras", command=self.restore_wallet
-        ).pack(anchor="w")
+        ttk.Button(panel, text="Sair da carteira", command=self.sign_out).pack(anchor="e")
         ttk.Button(panel, text="Verificar nó regtest", command=self.refresh).pack(anchor="w", pady=8)
         ttk.Separator(panel).pack(fill="x", pady=12)
         receive_controls = ttk.Frame(panel)
         receive_controls.pack(fill="x")
-        ttk.Button(receive_controls, text="Mostrar endereço de recebimento", command=self.receive).pack(side="left")
+        ttk.Label(receive_controls, text="Endereço de recebimento").pack(side="left")
         self.new_address_button = ttk.Button(
             receive_controls, text="Novo endereço", command=self.rotate_address, state="disabled"
         )
@@ -174,8 +160,80 @@ class WalletApp(tk.Tk):
         self.receipts.pack(side="left", fill="both", expand=True)
         self.status = tk.StringVar()
         ttk.Label(panel, textvariable=self.status, wraplength=550).pack(anchor="w")
-        self.after_idle(self.open_public_view)
+        self.show_entry()
+        self.after_idle(self.resume_session)
         self.after(15_000, self.poll_wallet)
+
+    def build_entry_panel(self):
+        panel = ttk.Frame(self, padding=24)
+        ttk.Label(panel, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
+        ttk.Label(panel, text="Rede local de testes · regtest").pack(anchor="w", pady=(4, 20))
+        self.create_button = ttk.Button(panel, text="Criar carteira", command=self.create_phrase)
+        self.create_button.pack(anchor="w", pady=(0, 8))
+        self.open_button = ttk.Button(panel, text="Abrir carteira existente", command=self.open_existing)
+        self.open_button.pack(anchor="w")
+        return panel
+
+    def show_entry(self):
+        exists = RECOVERY_FILE.is_file()
+        self.create_button.configure(state="disabled" if exists else "normal")
+        self.open_button.configure(state="normal" if exists else "disabled")
+        self.wallet_panel.pack_forget()
+        self.entry_panel.pack(fill="both", expand=True)
+
+    def show_wallet(self, address, account):
+        self.session_version += 1
+        self.history_running = False
+        self.rotating_address = False
+        self.entry_panel.pack_forget()
+        self.wallet_panel.pack(fill="both", expand=True)
+        self.set_address(address, account)
+
+    def resume_session(self):
+        if has_open_session():
+            view = read_public_view()
+            if view is not None and view[1] is not None:
+                self.show_wallet(*view)
+
+    def open_existing(self):
+        phrase = self.unlock_phrase()
+        if phrase is None:
+            return
+        try:
+            account = public_account(phrase)
+        except ValueError as error:
+            messagebox.showerror("Abrir carteira", str(error), parent=self)
+            return
+        view = read_public_view()
+        address = view[0] if view is not None and view[1] == account else account.first_address
+        self.start_session(address, account)
+
+    def start_session(self, address, account):
+        try:
+            save_public_account(account, address)
+            remember_session()
+        except OSError as error:
+            messagebox.showerror(
+                "Sessão local", f"Não foi possível lembrar a sessão neste computador.\n{error}", parent=self
+            )
+        self.show_wallet(address, account)
+
+    def sign_out(self):
+        try:
+            forget_session()
+        except OSError as error:
+            messagebox.showerror("Sair da carteira", str(error), parent=self)
+            return
+        self.session_version += 1
+        self.account = None
+        self.address.set("")
+        self.clear_receipts()
+        self.history_list.delete(*self.history_list.get_children())
+        self.history_entries.clear()
+        self.show_history_details()
+        self.history_status.set("Aguardando consulta do histórico.")
+        self.status.set("")
+        self.show_entry()
 
     def build_history_tab(self, panel):
         self.history_status = tk.StringVar(value="Mostre o endereço para consultar o histórico.")
@@ -227,6 +285,7 @@ class WalletApp(tk.Tk):
         wallet_view = self.wallet_view()
         if not wallet_view or self.history_running:
             return
+        session = self.session_version
         self.history_running = True
         self.history_status.set("Consultando o histórico no Bitcoin Core…")
 
@@ -235,6 +294,8 @@ class WalletApp(tk.Tk):
             return read_history(rpc, wallet_view)
 
         def show(result):
+            if session != self.session_version:
+                return
             self.history_running = False
             if wallet_view != self.wallet_view():
                 self.refresh_history()
@@ -269,45 +330,52 @@ class WalletApp(tk.Tk):
         confirmation = self.ask_password("Confirme a senha local.")
         if confirmation is None:
             return
+        if len(password) < 12:
+            messagebox.showerror("Senha local", "Use pelo menos 12 caracteres.", parent=self)
+            return None
         if confirmation != password:
             messagebox.showerror("Senha local", "As senhas são diferentes.", parent=self)
             return None
         return password
 
     def create_phrase(self):
-        password = self.new_password()
-        if password is None:
-            return
-        try:
-            phrase = create_recovery(int(self.word_count.get()), password)
-        except (OSError, ValueError) as error:
-            messagebox.showerror("Frase de recuperação", str(error), parent=self)
-            return
-        self.show_address(phrase)
-        self.display_phrase(phrase)
-
-    def restore_wallet(self):
-        phrase = simpledialog.askstring(
-            "Restaurar carteira", "Digite as palavras BIP39 de teste na ordem correta.",
-            show="*", parent=self,
+        sizes = ", ".join(map(str, WORD_COUNTS))
+        count = simpledialog.askinteger(
+            "Criar carteira", f"Escolha a quantidade de palavras ({sizes}).",
+            initialvalue=12, parent=self,
         )
-        if phrase is None:
+        if count is None:
             return
-        try:
-            phrase = validate_phrase(phrase)
-            account = public_account(phrase)
-        except ValueError as error:
-            messagebox.showerror("Restaurar carteira", str(error), parent=self)
+        if count not in WORD_COUNTS:
+            messagebox.showerror("Criar carteira", f"Escolha uma destas quantidades: {sizes}.", parent=self)
             return
         password = self.new_password()
         if password is None:
             return
+        phrase = generate_phrase(count)
+        self.display_phrase(phrase)
+        while True:
+            typed = simpledialog.askstring(
+                "Confirmar palavras", "Digite todas as palavras anotadas, na ordem correta.",
+                show="*", parent=self,
+            )
+            if typed is None:
+                return
+            if " ".join(typed.lower().split()) == phrase:
+                break
+            messagebox.showerror(
+                "Confirmar palavras", "As palavras não conferem. Confira a ordem e tente novamente.",
+                parent=self,
+            )
+
         try:
+            account = public_account(phrase)
             save_recovery(phrase, password)
         except (OSError, ValueError) as error:
-            messagebox.showerror("Restaurar carteira", str(error), parent=self)
+            messagebox.showerror("Criar carteira", str(error), parent=self)
+            self.show_entry()
             return
-        self.show_account(account, "Carteira de teste restaurada.")
+        self.start_session(account.first_address, account)
 
     def unlock_phrase(self, parent=None):
         parent = parent or self
@@ -328,11 +396,6 @@ class WalletApp(tk.Tk):
             return
         return phrase
 
-    def show_saved_phrase(self):
-        phrase = self.unlock_phrase()
-        if phrase is not None:
-            self.display_phrase(phrase)
-
     def display_phrase(self, phrase):
         words = phrase.split()
         rows = [
@@ -351,32 +414,6 @@ class WalletApp(tk.Tk):
             self.status.set(f"Nó conectado · bloco {height}")
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             self.status.set(str(error))
-
-    def show_address(self, phrase):
-        try:
-            account = public_account(phrase)
-        except ValueError as error:
-            self.status.set(str(error))
-            return
-        self.show_account(account, "Endereço de recebimento disponível em regtest.")
-
-    def show_account(self, account, message):
-        try:
-            save_public_account(account)
-        except OSError as error:
-            message = f"Não foi possível salvar o acesso sem senha: {error}"
-        self.set_address(account.first_address, account)
-        self.status.set(message)
-
-    def open_public_view(self):
-        view = read_public_view()
-        if view is not None:
-            self.set_address(*view)
-            if view[1] is None:
-                self.status.set("Mostre o endereço e digite a senha uma vez para ativar os novos endereços.")
-        elif RECOVERY_FILE.is_file():
-            self.status.set("Mostre o endereço de recebimento para habilitar a consulta sem senha.")
-        return view
 
     def set_address(self, address, account):
         previous = self.wallet_view()
@@ -398,6 +435,7 @@ class WalletApp(tk.Tk):
         account = self.account
         if account is None or self.rotating_address:
             return
+        session = self.session_version
         self.rotating_address = True
         self.new_address_button.configure(state="disabled")
         self.status.set("Obtendo um novo endereço de recebimento…")
@@ -409,6 +447,8 @@ class WalletApp(tk.Tk):
             return address
 
         def show(result):
+            if session != self.session_version:
+                return
             self.rotating_address = False
             if self.account != account:
                 self.new_address_button.configure(state="normal" if self.account else "disabled")
@@ -550,14 +590,15 @@ class WalletApp(tk.Tk):
         if self.scan_button.instate(("disabled",)):
             return
         self.scan_button.configure(state="disabled")
+        session = self.session_version
         if self.balance.get() == "—":
             self.status.set("Consultando o Bitcoin Core…")
         run_node_task(
-            self, lambda: scan_receipts(wallet_view), lambda result: self.show_receipts(wallet_view, result)
+            self, lambda: scan_receipts(wallet_view), lambda result: self.show_receipts(wallet_view, session, result)
         )
 
-    def show_receipts(self, wallet_view, result):
-        if self.wallet_view() != wallet_view:
+    def show_receipts(self, wallet_view, session, result):
+        if session != self.session_version or self.wallet_view() != wallet_view:
             return
         self.scan_button.configure(state="normal")
         if isinstance(result, Exception):
@@ -572,17 +613,6 @@ class WalletApp(tk.Tk):
         formatted = f"{total:,}".replace(",", ".")
         self.balance.set(f"{formatted} sats")
         self.status.set(f"Consulta concluída no bloco {height}.")
-
-    def receive(self):
-        if self.account is not None:
-            return
-        view = self.open_public_view()
-        if view is not None and view[1] is not None:
-            return
-        phrase = self.unlock_phrase()
-        if phrase is not None:
-            self.show_address(phrase)
-
 
 if __name__ == "__main__":
     WalletApp().mainloop()
