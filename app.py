@@ -5,7 +5,7 @@ from tkinter import messagebox, simpledialog, ttk
 
 from cryptography.exceptions import InvalidTag
 
-from recovery import create_recovery, read_recovery
+from recovery import WORD_COUNTS, create_recovery, read_recovery
 
 WALLET = "carteira-lab"
 
@@ -37,7 +37,7 @@ class WalletApp(tk.Tk):
         self.word_count = tk.StringVar(value="12")
         ttk.Label(phrase_controls, text="Palavras").pack(side="left")
         ttk.Combobox(
-            phrase_controls, values=("12", "24"), textvariable=self.word_count,
+            phrase_controls, values=WORD_COUNTS, textvariable=self.word_count,
             state="readonly", width=4,
         ).pack(side="left", padx=6)
         ttk.Button(phrase_controls, text="Gerar frase de teste", command=self.create_phrase).pack(

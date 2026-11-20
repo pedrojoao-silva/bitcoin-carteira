@@ -11,7 +11,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from mnemonic import Mnemonic
 
-STRENGTH = {12: 128, 24: 256}
+STRENGTH = {12: 128, 15: 160, 18: 192, 21: 224, 24: 256}
+WORD_COUNTS = tuple(STRENGTH)
 CONTEXT = b"bitcoin-carteira:regtest:recovery:v1"
 DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
 RECOVERY_FILE = DATA_HOME / "bitcoin-carteira" / "regtest-recovery.json"
@@ -23,7 +24,8 @@ def derive_key(password, salt):
 
 def create_recovery(words, password, path=RECOVERY_FILE):
     if words not in STRENGTH:
-        raise ValueError("Escolha 12 ou 24 palavras.")
+        sizes = ", ".join(map(str, WORD_COUNTS))
+        raise ValueError(f"Escolha uma destas quantidades de palavras: {sizes}.")
     if len(password) < 12:
         raise ValueError("Use uma senha com pelo menos 12 caracteres.")
 

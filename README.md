@@ -29,7 +29,7 @@ Se a carteira já existir e estiver descarregada, use `bitcoin-cli -regtest load
 
 ## Frase de recuperação
 
-Escolha 12 ou 24 palavras e clique em **Gerar frase de teste**. A frase segue
+Escolha 12, 15, 18, 21 ou 24 palavras e clique em **Gerar frase de teste**. A frase segue
 BIP39, com a lista inglesa, e é gerada localmente. A senha local deriva a chave
 com scrypt. O aplicativo salva a frase com AES-256-GCM em
 `~/.local/share/bitcoin-carteira/regtest-recovery.json` (ou sob
