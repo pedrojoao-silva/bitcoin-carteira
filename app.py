@@ -1,6 +1,9 @@
 import json
 import subprocess
 import tkinter as tk
+from decimal import Decimal
+from queue import Empty, Queue
+from threading import Thread
 from tkinter import messagebox, simpledialog, ttk
 
 from cryptography.exceptions import InvalidTag
@@ -9,22 +12,52 @@ from addresses import receiving_address
 from recovery import WORD_COUNTS, create_recovery, read_recovery, save_recovery, validate_phrase
 
 
-def rpc(method, *args):
-    command = ["bitcoin-cli", "-regtest", "-rpcconnect=127.0.0.1", "-rpcport=18443", "-rpcclienttimeout=2"]
+def rpc(method, *args, timeout=2):
+    command = [
+        "bitcoin-cli", "-regtest", "-rpcconnect=127.0.0.1", "-rpcport=18443",
+        f"-rpcclienttimeout={timeout}",
+    ]
     result = subprocess.run(
-        [*command, method, *args], capture_output=True, text=True, timeout=3
+        [*command, method, *args], capture_output=True, text=True, timeout=timeout + 1
     )
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "Falha ao consultar o nó.")
     return result.stdout.strip()
 
 
+def check_network():
+    info = json.loads(rpc("getblockchaininfo"))
+    if info.get("chain") != "regtest":
+        raise RuntimeError("Conecte um nó Bitcoin Core em regtest.")
+    return info["blocks"]
+
+
+def scan_receipts(address):
+    check_network()
+    scan = json.loads(
+        rpc("scantxoutset", "start", json.dumps([f"addr({address})"]), timeout=30),
+        parse_float=Decimal,
+    )
+    if not scan.get("success"):
+        raise RuntimeError("O Bitcoin Core não concluiu a consulta.")
+    height = scan["height"]
+    receipts = [
+        (
+            f"{output['txid']}:{output['vout']}",
+            int(output["amount"] * 100_000_000),
+            height - output["height"] + 1,
+        )
+        for output in sorted(scan["unspents"], key=lambda output: output["height"], reverse=True)
+    ]
+    return height, receipts
+
+
 class WalletApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Carteira Bitcoin")
-        self.geometry("640x420")
-        self.minsize(520, 340)
+        self.geometry("760x570")
+        self.minsize(560, 480)
         panel = ttk.Frame(self, padding=24)
         panel.pack(fill="both", expand=True)
         ttk.Label(panel, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
@@ -51,6 +84,29 @@ class WalletApp(tk.Tk):
         ttk.Button(panel, text="Mostrar endereço de recebimento", command=self.receive).pack(anchor="w")
         self.address = tk.StringVar()
         ttk.Entry(panel, textvariable=self.address, state="readonly").pack(fill="x", pady=8)
+        self.scan_button = ttk.Button(
+            panel, text="Consultar saldo confirmado", command=self.refresh_receipts,
+            state="disabled",
+        )
+        self.scan_button.pack(anchor="w")
+        self.balance = tk.StringVar(value="Saldo confirmado: —")
+        ttk.Label(panel, textvariable=self.balance).pack(anchor="w", pady=8)
+        ttk.Label(panel, text="Recebimentos confirmados ainda não gastos").pack(anchor="w")
+        table = ttk.Frame(panel)
+        table.pack(fill="both", expand=True, pady=(4, 8))
+        self.receipts = ttk.Treeview(
+            table, columns=("output", "amount", "confirmations"), show="headings", height=5,
+        )
+        self.receipts.heading("output", text="Transação: saída")
+        self.receipts.heading("amount", text="Valor (sats)")
+        self.receipts.heading("confirmations", text="Confirmações")
+        self.receipts.column("output", width=400, minwidth=200)
+        self.receipts.column("amount", width=110, anchor="e", stretch=False)
+        self.receipts.column("confirmations", width=105, anchor="e", stretch=False)
+        scroll = ttk.Scrollbar(table, orient="vertical", command=self.receipts.yview)
+        self.receipts.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.receipts.pack(side="left", fill="both", expand=True)
         self.status = tk.StringVar()
         ttk.Label(panel, textvariable=self.status, wraplength=470).pack(anchor="w")
 
@@ -102,7 +158,7 @@ class WalletApp(tk.Tk):
         except (OSError, ValueError) as error:
             messagebox.showerror("Restaurar carteira", str(error), parent=self)
             return
-        self.address.set(address)
+        self.set_address(address)
         self.status.set("Carteira de teste restaurada.")
 
     def unlock_phrase(self):
@@ -140,26 +196,65 @@ class WalletApp(tk.Tk):
             parent=self,
         )
 
-    def check_network(self):
-        info = json.loads(rpc("getblockchaininfo"))
-        if info.get("chain") != "regtest":
-            raise RuntimeError("Conecte um nó Bitcoin Core em regtest.")
-        return info["blocks"]
-
     def refresh(self):
         try:
-            height = self.check_network()
+            height = check_network()
             self.status.set(f"Nó conectado · bloco {height}")
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             self.status.set(str(error))
 
     def show_address(self, phrase):
         try:
-            self.address.set(receiving_address(phrase))
+            self.set_address(receiving_address(phrase))
         except ValueError as error:
             self.status.set(str(error))
             return
         self.status.set("Primeiro endereço da carteira em regtest.")
+
+    def set_address(self, address):
+        if self.address.get() != address:
+            self.address.set(address)
+            self.clear_receipts()
+            self.scan_button.configure(state="normal")
+
+    def clear_receipts(self):
+        self.balance.set("Saldo confirmado: —")
+        self.receipts.delete(*self.receipts.get_children())
+
+    def refresh_receipts(self):
+        address = self.address.get()
+        results = Queue()
+
+        def scan():
+            try:
+                results.put(scan_receipts(address))
+            except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+                results.put(error)
+
+        self.clear_receipts()
+        self.scan_button.configure(state="disabled")
+        self.status.set("Consultando o Bitcoin Core…")
+        Thread(target=scan, daemon=True).start()
+        self.after(100, self.show_receipts, address, results)
+
+    def show_receipts(self, address, results):
+        try:
+            result = results.get_nowait()
+        except Empty:
+            self.after(100, self.show_receipts, address, results)
+            return
+        if self.address.get() != address:
+            return
+        self.scan_button.configure(state="normal")
+        if isinstance(result, Exception):
+            self.status.set(str(result))
+            return
+        height, receipts = result
+        for receipt in receipts:
+            self.receipts.insert("", "end", values=receipt)
+        total = sum(amount for _, amount, _ in receipts)
+        self.balance.set(f"Saldo confirmado: {total} sats")
+        self.status.set(f"Consulta concluída no bloco {height}.")
 
     def receive(self):
         phrase = self.unlock_phrase()

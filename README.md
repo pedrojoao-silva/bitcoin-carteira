@@ -19,7 +19,7 @@ python3 app.py
 ```
 
 A geração, a restauração e a exibição do endereço funcionam sem nó.
-Para usar **Verificar nó regtest**, inicie o Bitcoin Core com
+Para verificar o nó ou consultar o saldo, inicie o Bitcoin Core com
 `bitcoind -regtest -listen=0 -connect=0`.
 
 ## Frase de recuperação
@@ -48,10 +48,25 @@ com um diretório de dados temporário:
 XDG_DATA_HOME="$(mktemp -d)" python3 app.py
 ```
 
-## Próximas etapas
+## Saldo e recebimentos em regtest
 
-1. Consultar pagamentos e saldo em regtest para os endereços derivados.
-2. Estimar a taxa em sat/vB, preparar a transação e exibir a taxa efetiva
-   em sats (soma das entradas menos soma das saídas), junto ao destino,
-   valor, troco e total debitado. Transmitir somente após a confirmação
-   dessa transação.
+Mostre o endereço de recebimento e clique em **Consultar saldo confirmado**.
+O Bitcoin Core consulta as saídas ainda não gastas desse endereço no bloco
+indicado. A tabela mostra o identificador da transação e da saída, o valor em
+sats e as confirmações. O total pode incluir recompensas de mineração ainda
+imaturas. Pagamentos pendentes e saídas já gastas ficam fora da consulta.
+
+Para testar com o nó em execução, copie o endereço da tela no lugar de
+`<endereço bcrt1q>` e gere um bloco:
+
+```sh
+bitcoin-cli -regtest generatetoaddress 1 '<endereço bcrt1q>'
+```
+
+Atualize o saldo. A recompensa deve aparecer na tabela com uma confirmação.
+
+## Próxima etapa
+
+Estimar a taxa em sat/vB, preparar a transação e exibir a taxa efetiva em
+sats (soma das entradas menos soma das saídas), junto ao destino, valor,
+troco e total debitado. Transmitir somente após a confirmação dessa transação.
