@@ -20,7 +20,7 @@ def compressed_public_key(private_key):
     )
 
 
-def derive_public_key(seed, path):
+def derive_private_key(seed, path):
     digest = hmac.digest(b"Bitcoin seed", seed, "sha512")
     private_key = int.from_bytes(digest[:32], "big")
     chain_code = digest[32:]
@@ -38,11 +38,19 @@ def derive_public_key(seed, path):
         if tweak >= CURVE_ORDER or private_key == 0:
             raise ValueError("Não foi possível derivar a chave no caminho BIP84.")
         chain_code = digest[32:]
-    return compressed_public_key(private_key)
+    return private_key
+
+
+def derive_public_key(seed, path):
+    return compressed_public_key(derive_private_key(seed, path))
+
+
+def public_key_hash(public_key):
+    return hashlib.new("ripemd160", hashlib.sha256(public_key).digest()).digest()
 
 
 def encode_p2wpkh(public_key, prefix):
-    witness_program = hashlib.new("ripemd160", hashlib.sha256(public_key).digest()).digest()
+    witness_program = public_key_hash(public_key)
     # A 160-bit witness program divides into exactly 32 groups of five bits.
     value = int.from_bytes(witness_program, "big")
     payload = [0, *((value >> shift) & 31 for shift in range(155, -1, -5))]

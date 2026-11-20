@@ -80,5 +80,16 @@ volta para o endereço de origem. Se o troco ficar abaixo do limite de 294
 sats, ele entra na taxa exibida na revisão.
 
 Use fundos de teste maduros para revisar o envio. Uma recompensa de mineração
-precisa de 100 confirmações para entrar na seleção. A próxima etapa é assinar
-a transação, conferir sua aceitação e só transmiti-la após confirmação.
+precisa de 100 confirmações para entrar na seleção.
+
+Depois da revisão, digite a senha para assinar localmente. O Bitcoin Core
+verifica a aceitação da transação assinada. Clique em **Sim** na janela
+**Confirmar envio** para transmiti-la. A janela mostra o txid retornado
+pelo nó. Se a transmissão ficar sem confirmação, consulte esse txid antes
+de criar outro envio.
+
+Para testar de ponta a ponta em regtest, gere 101 blocos para o endereço
+de origem, envie para outro endereço regtest e mine mais um bloco. Confira
+o recebimento no destino e atualize o saldo da carteira. Use **outro**
+endereço para minerar esse último bloco, para que a recompensa não se some
+ao saldo de origem durante a conferência.

@@ -11,6 +11,7 @@ from cryptography.exceptions import InvalidTag
 from addresses import receiving_address
 from recovery import WORD_COUNTS, create_recovery, read_recovery, save_recovery, validate_phrase
 from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
+from signing import check_acceptance, sign_send
 
 
 def rpc(method, *args, timeout=2):
@@ -143,8 +144,8 @@ class WalletApp(tk.Tk):
         self.status = tk.StringVar()
         ttk.Label(panel, textvariable=self.status, wraplength=470).pack(anchor="w")
 
-    def ask_password(self, prompt):
-        return simpledialog.askstring("Frase de recuperação", prompt, show="*", parent=self)
+    def ask_password(self, prompt, parent=None):
+        return simpledialog.askstring("Frase de recuperação", prompt, show="*", parent=parent or self)
 
     def new_password(self):
         password = self.ask_password("Crie uma senha local com pelo menos 12 caracteres.")
@@ -194,20 +195,21 @@ class WalletApp(tk.Tk):
         self.set_address(address)
         self.status.set("Carteira de teste restaurada.")
 
-    def unlock_phrase(self):
-        password = self.ask_password("Digite a senha local.")
+    def unlock_phrase(self, parent=None):
+        parent = parent or self
+        password = self.ask_password("Digite a senha local.", parent)
         if password is None:
             return
         try:
             phrase = read_recovery(password)
         except InvalidTag:
             messagebox.showerror(
-                "Frase de recuperação", "Senha incorreta ou arquivo alterado.", parent=self
+                "Frase de recuperação", "Senha incorreta ou arquivo alterado.", parent=parent
             )
             return
         except (OSError, ValueError, KeyError, TypeError):
             messagebox.showerror(
-                "Frase de recuperação", "Não foi possível abrir o arquivo local.", parent=self
+                "Frase de recuperação", "Não foi possível abrir o arquivo local.", parent=parent
             )
             return
         return phrase
@@ -269,6 +271,69 @@ class WalletApp(tk.Tk):
         status = tk.StringVar()
         ttk.Label(panel, textvariable=status, wraplength=450).pack(anchor="w", pady=(8, 0))
 
+        def set_controls(state):
+            for widget in (destination, amount, estimate_button, review_button):
+                widget.configure(state=state)
+
+        def sign_and_confirm(draft):
+            details = (
+                f"Destino: {draft.destination}\n"
+                f"Valor enviado: {draft.amount} sats\n"
+                f"Troco: {draft.change} sats\n"
+                f"Taxa efetiva: {draft.fee} sats\n"
+                f"Total debitado: {draft.total} sats"
+            )
+            messagebox.showinfo("Revisão do envio · regtest", details, parent=window)
+            phrase = self.unlock_phrase(window)
+            if phrase is None:
+                set_controls("normal")
+                status.set("Envio cancelado.")
+                return
+            status.set("Assinando localmente e verificando a aceitação…")
+
+            def sign():
+                check_network()
+                signed = sign_send(rpc, draft, source, phrase)
+                check_acceptance(rpc, signed)
+                return signed
+
+            def confirm(result):
+                if isinstance(result, Exception):
+                    set_controls("normal")
+                    status.set(str(result))
+                    return
+                accepted = messagebox.askyesno(
+                    "Confirmar envio · regtest",
+                    details + "\n\nTransmitir esta transação de teste agora?",
+                    default=messagebox.NO, parent=window,
+                )
+                if not accepted:
+                    set_controls("normal")
+                    status.set("Envio cancelado.")
+                    return
+                status.set(f"Transmitindo…\n{result.txid}")
+                window.protocol("WM_DELETE_WINDOW", lambda: None)
+
+                def broadcast():
+                    check_network()
+                    txid = rpc("sendrawtransaction", result.raw)
+                    if txid != result.txid:
+                        raise RuntimeError("O nó retornou um identificador inesperado.")
+                    return txid
+
+                def show_txid(txid):
+                    window.protocol("WM_DELETE_WINDOW", window.destroy)
+                    if isinstance(txid, Exception):
+                        status.set(f"Transmissão sem confirmação. Consulte o txid antes de reenviar.\n"
+                                   f"{result.txid}\n{txid}")
+                        return
+                    status.set(f"Transação enviada.\n{txid}")
+                    self.clear_receipts()
+
+                run_node_task(window, broadcast, show_txid)
+
+            run_node_task(window, sign, confirm)
+
         def start(review):
             target = destination.get().strip()
             try:
@@ -276,8 +341,7 @@ class WalletApp(tk.Tk):
             except ValueError as error:
                 status.set(str(error))
                 return
-            for widget in (destination, amount, estimate_button, review_button):
-                widget.configure(state="disabled")
+            set_controls("disabled")
             status.set("Consultando o Bitcoin Core…")
 
             def calculate():
@@ -289,22 +353,11 @@ class WalletApp(tk.Tk):
                 return f"Taxa estimada: {estimated_fee(rate, 1, script)} sats ({rate:f} sat/vB, uma entrada)."
 
             def show(result):
-                for widget in (destination, amount, estimate_button, review_button):
-                    widget.configure(state="normal")
                 if isinstance(result, (Exception, str)):
+                    set_controls("normal")
                     status.set(str(result))
                     return
-                status.set("Transação de teste preparada.")
-                messagebox.showinfo(
-                    "Revisão do envio · regtest",
-                    f"Destino: {result.destination}\n"
-                    f"Valor enviado: {result.amount} sats\n"
-                    f"Troco: {result.change} sats\n"
-                    f"Taxa efetiva: {result.fee} sats\n"
-                    f"Total debitado: {result.total} sats\n\n"
-                    "Transação preparada para revisão, sem assinatura.",
-                    parent=window,
-                )
+                sign_and_confirm(result)
 
             run_node_task(window, calculate, show)
 

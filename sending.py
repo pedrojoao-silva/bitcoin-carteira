@@ -17,6 +17,7 @@ class SendDraft:
     change: int
     fee: int
     unsigned_hex: str
+    input_sats: tuple[int, ...]
 
     @property
     def total(self):
@@ -74,6 +75,7 @@ def prepare_send(rpc, scan, source, destination, amount):
     snapshot = scan(source)
     candidates = sorted(snapshot["unspents"], key=lambda output: output["amount"], reverse=True)
     inputs = []
+    input_sats = []
     input_total = 0
     for output in candidates:
         current = json.loads(
@@ -85,7 +87,8 @@ def prepare_send(rpc, scan, source, destination, amount):
         if current["scriptPubKey"]["hex"] != output["scriptPubKey"]:
             raise RuntimeError("A saída disponível diverge da saída encontrada na consulta.")
         inputs.append({"txid": output["txid"], "vout": output["vout"]})
-        input_total += decode_amount(current["value"])
+        input_sats.append(decode_amount(current["value"]))
+        input_total += input_sats[-1]
         change = input_total - amount - estimated_fee(rate, len(inputs), script)
         if change >= CHANGE_DUST:
             break
@@ -113,4 +116,4 @@ def prepare_send(rpc, scan, source, destination, amount):
     ):
         raise RuntimeError("A transação preparada diverge das entradas ou saídas esperadas.")
     fee = input_total - sum(actual_outputs.values())
-    return SendDraft(destination, amount, change, fee, raw)
+    return SendDraft(destination, amount, change, fee, raw, tuple(input_sats))
