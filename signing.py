@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, utils
 from mnemonic import Mnemonic
 
 from addresses import (
-    CURVE_ORDER, RECEIVING_PATH, compressed_public_key, derive_private_key,
+    ACCOUNT_PATH, ADDRESS_LIMIT, CURVE_ORDER, compressed_public_key, derive_private_key,
     encode_p2wpkh, public_key_hash,
 )
 from sending import decode_amount
@@ -38,27 +38,38 @@ def vector(data):
     return compact_size(len(data)) + data
 
 
-def sign_send(rpc, draft, source, phrase):
+def sign_send(rpc, draft, phrase):
     decoded = json.loads(rpc("decoderawtransaction", draft.unsigned_hex), parse_float=Decimal)
     inputs = decoded["vin"]
     outputs = decoded["vout"]
-    if not inputs or len(inputs) != len(draft.input_sats):
+    if (
+        not inputs
+        or [(item["txid"], item["vout"]) for item in inputs]
+        != [(item.txid, item.output_index) for item in draft.inputs]
+    ):
         raise ValueError("As entradas da transação divergem da revisão.")
     expected = {draft.destination: draft.amount}
     if draft.change:
-        expected[source] = draft.change
+        expected[draft.change_address] = draft.change
     actual = {out["scriptPubKey"]["address"]: decode_amount(out["value"]) for out in outputs}
     if len(outputs) != len(expected) or actual != expected:
         raise ValueError("As saídas da transação divergem da revisão.")
-    if sum(draft.input_sats) - sum(actual.values()) != draft.fee:
+    if sum(item.amount for item in draft.inputs) - sum(actual.values()) != draft.fee:
         raise ValueError("A taxa da transação diverge da revisão.")
 
-    secret = derive_private_key(Mnemonic.to_seed(phrase), RECEIVING_PATH)
-    public_key = compressed_public_key(secret)
-    if encode_p2wpkh(public_key, "bcrt") != source:
-        raise ValueError("A frase desbloqueada não corresponde ao endereço de origem.")
-    key = ec.derive_private_key(secret, ec.SECP256K1())
-    script_code = vector(b"\x76\xa9\x14" + public_key_hash(public_key) + b"\x88\xac")
+    seed = Mnemonic.to_seed(phrase)
+    if draft.change:
+        branch, index = draft.change_path
+        if branch != 1 or not 0 <= index < ADDRESS_LIMIT:
+            raise ValueError("O caminho do troco não pertence à carteira.")
+        change_key = compressed_public_key(derive_private_key(seed, (*ACCOUNT_PATH, branch, index)))
+        change_script = "0014" + public_key_hash(change_key).hex()
+        if (
+            encode_p2wpkh(change_key, "bcrt") != draft.change_address
+            or not any(out["scriptPubKey"]["hex"] == change_script for out in outputs
+                       if out["scriptPubKey"]["address"] == draft.change_address)
+        ):
+            raise ValueError("O endereço do troco não pertence à carteira desbloqueada.")
     version = decoded["version"].to_bytes(4, "little", signed=True)
     locktime = decoded["locktime"].to_bytes(4, "little")
     outpoints = [
@@ -82,8 +93,18 @@ def sign_send(rpc, draft, source, phrase):
     prefix = version + hash256(b"".join(outpoints)) + hash256(b"".join(sequences))
     suffix = hash256(output_bytes) + locktime + b"\x01\x00\x00\x00"  # SIGHASH_ALL
     witnesses = []
-    for outpoint, sequence, amount in zip(outpoints, sequences, draft.input_sats):
-        preimage = prefix + outpoint + script_code + amount.to_bytes(8, "little") + sequence + suffix
+    for outpoint, sequence, item in zip(outpoints, sequences, draft.inputs):
+        branch, index = item.path
+        if branch not in (0, 1) or not 0 <= index < ADDRESS_LIMIT:
+            raise ValueError("Uma entrada usa um caminho fora da faixa monitorada.")
+        secret = derive_private_key(seed, (*ACCOUNT_PATH, branch, index))
+        public_key = compressed_public_key(secret)
+        key_hash = public_key_hash(public_key)
+        if item.script != "0014" + key_hash.hex():
+            raise ValueError("Uma entrada não pertence à carteira desbloqueada.")
+        key = ec.derive_private_key(secret, ec.SECP256K1())
+        script_code = vector(b"\x76\xa9\x14" + key_hash + b"\x88\xac")
+        preimage = prefix + outpoint + script_code + item.amount.to_bytes(8, "little") + sequence + suffix
         signature = key.sign(hash256(preimage), ec.ECDSA(utils.Prehashed(hashes.SHA256())))
         r, s = utils.decode_dss_signature(signature)
         signature = utils.encode_dss_signature(r, min(s, CURVE_ORDER - s)) + b"\x01"

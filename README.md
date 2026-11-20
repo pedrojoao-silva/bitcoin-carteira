@@ -34,10 +34,16 @@ com a senha local. A senha do arquivo é independente da frase BIP39.
 ## Endereço e restauração
 
 O aplicativo abre com o endereço de recebimento, o saldo e o histórico
-sem pedir senha. Um arquivo auxiliar local guarda a chave pública do primeiro
-endereço P2WPKH, derivado pelo caminho BIP84 `m/84'/1'/0'/0/0`, com
-prefixo `bcrt1q`. As versões anteriores da carteira precisam de um
-desbloqueio em **Mostrar endereço de recebimento** para gravar esse arquivo.
+sem pedir senha. Um arquivo auxiliar local guarda a conta pública BIP84 e o
+endereço exibido. O primeiro endereço P2WPKH continua no caminho
+`m/84'/1'/0'/0/0`, com prefixo `bcrt1q`. As versões anteriores da carteira
+precisam de um desbloqueio em **Mostrar endereço de recebimento** para
+habilitar os novos endereços e o troco separado.
+
+Com o nó regtest em execução, clique em **Novo endereço** para receber
+em outro endereço da mesma carteira. O saldo inclui os endereços anteriores
+e os de troco. O protótipo monitora os índices de 0 a 999 em cada ramo BIP84
+e só entrega novos endereços dentro dessa faixa.
 
 A senha local continua necessária para assinar envios e consultar a frase
 salva no protótipo. O protótipo usa a passphrase BIP39 vazia. A senha
@@ -82,9 +88,9 @@ conservador deste protótipo.
 SegWit e uma saída de troco. **Revisar envio** seleciona saídas confirmadas
 disponíveis, prepara a transação sem assinatura e mostra o destino, o valor,
 o troco, a taxa efetiva e o total debitado. A taxa efetiva é a diferença
-entre as entradas e as saídas da transação preparada. Nesta etapa, o troco
-volta para o endereço de origem. Se o troco ficar abaixo do limite de 294
-sats, ele entra na taxa exibida na revisão.
+entre as entradas e as saídas da transação preparada. O troco vai para um
+endereço separado, derivado no ramo interno da mesma carteira. Se o troco
+ficar abaixo do limite de 294 sats, ele entra na taxa exibida na revisão.
 
 Use fundos de teste maduros para revisar o envio. Uma recompensa de mineração
 precisa de 100 confirmações para entrar na seleção.
@@ -98,7 +104,7 @@ de criar outro envio.
 ## Histórico e confirmação no destino
 
 A aba **Histórico** consulta uma carteira de observação no Bitcoin Core.
-Ela registra somente o endereço público, mantém os pagamentos que já foram
+Ela registra somente os descritores públicos, mantém os pagamentos que já foram
 gastos e acompanha a mempool e os blocos. Na primeira abertura, o nó pesquisa
 os blocos anteriores para recuperar transações já realizadas. Os registros
 voltam a aparecer depois de fechar e reabrir o aplicativo.
@@ -125,6 +131,8 @@ PYTHONPATH=. python3 tests/regtest_send.py
 
 O teste inicia um nó isolado em uma porta local temporária. Ele verifica que
 a preparação, a assinatura e a consulta de aceitação deixam a mempool vazia.
-Em seguida transmite outro envio, minera um bloco e confere os dois saldos
-e a taxa. O teste exercita as funções de envio usadas pela janela. O
+Em seguida transmite um envio com fundos de dois endereços, minera um bloco
+e confere os saldos e a taxa. Ele restaura a frase em outro perfil, recria
+a carteira de observação e confere a recuperação do histórico e do troco.
+O teste exercita as funções de envio usadas pela janela. O
 cancelamento pelo botão da interface continua sendo uma verificação manual.

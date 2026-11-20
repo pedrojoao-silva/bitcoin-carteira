@@ -4,10 +4,21 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING
 
+from watching import address_path, next_wallet_address, watch_wallet
+
 COIN = 100_000_000
 MAX_AMOUNT = 21_000_000 * COIN
 CHANGE_DUST = 294
 MIN_PAYMENT = 546
+
+
+@dataclass(frozen=True)
+class SendInput:
+    txid: str
+    output_index: int
+    amount: int
+    script: str
+    path: tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -17,7 +28,9 @@ class SendDraft:
     change: int
     fee: int
     unsigned_hex: str
-    input_sats: tuple[int, ...]
+    inputs: tuple[SendInput, ...]
+    change_address: str | None
+    change_path: tuple[int, int] | None
 
     @property
     def total(self):
@@ -69,13 +82,16 @@ def validate_destination(rpc, source, destination):
     return normalized, info["scriptPubKey"]
 
 
-def prepare_send(rpc, scan, source, destination, amount):
-    destination, script = validate_destination(rpc, source, destination)
+def prepare_send(rpc, scan, account, destination, amount):
+    destination, script = validate_destination(rpc, account.first_address, destination)
+    wallet = watch_wallet(rpc, account)
+    info = json.loads(rpc("getaddressinfo", destination, wallet=wallet))
+    if info.get("ismine") or info.get("iswatchonly"):
+        raise ValueError("Escolha um endereço de destino de outra carteira.")
     rate = fee_rate(rpc)
-    snapshot = scan(source)
+    snapshot = scan(account)
     candidates = sorted(snapshot["unspents"], key=lambda output: output["amount"], reverse=True)
     inputs = []
-    input_sats = []
     input_total = 0
     for output in candidates:
         current = json.loads(
@@ -86,9 +102,10 @@ def prepare_send(rpc, scan, source, destination, amount):
             continue
         if current["scriptPubKey"]["hex"] != output["scriptPubKey"]:
             raise RuntimeError("A saída disponível diverge da saída encontrada na consulta.")
-        inputs.append({"txid": output["txid"], "vout": output["vout"]})
-        input_sats.append(decode_amount(current["value"]))
-        input_total += input_sats[-1]
+        amount_in = decode_amount(current["value"])
+        path = address_path(rpc, wallet, current["scriptPubKey"]["address"])
+        inputs.append(SendInput(output["txid"], output["vout"], amount_in, output["scriptPubKey"], path))
+        input_total += amount_in
         change = input_total - amount - estimated_fee(rate, len(inputs), script)
         if change >= CHANGE_DUST:
             break
@@ -99,21 +116,26 @@ def prepare_send(rpc, scan, source, destination, amount):
         raise ValueError("Saldo confirmado disponível insuficiente para o valor e a taxa.")
 
     outputs = {destination: amount}
+    change_address = None
+    change_path = None
     if change:
-        outputs[source] = change
+        change_address, change_path = next_wallet_address(rpc, wallet, 1)
+        outputs[change_address] = change
     # Send fixed-point BTC amounts as strings to preserve exact satoshis.
     amounts = {address: f"{Decimal(sats) / COIN:.8f}" for address, sats in outputs.items()}
-    raw = rpc("createrawtransaction", json.dumps(inputs), json.dumps(amounts))
+    outpoints = [(item.txid, item.output_index) for item in inputs]
+    raw_inputs = [{"txid": txid, "vout": index} for txid, index in outpoints]
+    raw = rpc("createrawtransaction", json.dumps(raw_inputs), json.dumps(amounts))
     decoded = json.loads(rpc("decoderawtransaction", raw), parse_float=Decimal)
     actual_inputs = [(item["txid"], item["vout"]) for item in decoded["vin"]]
     actual_outputs = {
         item["scriptPubKey"]["address"]: decode_amount(item["value"]) for item in decoded["vout"]
     }
     if (
-        actual_inputs != [(item["txid"], item["vout"]) for item in inputs]
+        actual_inputs != outpoints
         or len(decoded["vout"]) != len(outputs)
         or actual_outputs != outputs
     ):
         raise RuntimeError("A transação preparada diverge das entradas ou saídas esperadas.")
     fee = input_total - sum(actual_outputs.values())
-    return SendDraft(destination, amount, change, fee, raw, tuple(input_sats))
+    return SendDraft(destination, amount, change, fee, raw, tuple(inputs), change_address, change_path)

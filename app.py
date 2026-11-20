@@ -3,19 +3,22 @@ import subprocess
 import tkinter as tk
 from decimal import Decimal
 from queue import Empty, Queue
-from threading import Thread
+from threading import Lock, Thread
 from tkinter import messagebox, simpledialog, ttk
 
 from cryptography.exceptions import InvalidTag
 
-from addresses import encode_p2wpkh, receiving_public_key
+from addresses import PublicAccount, public_account
 from history import read_history
 from recovery import (
-    RECOVERY_FILE, WORD_COUNTS, create_recovery, read_public_address, read_recovery,
-    save_public_address, save_recovery, validate_phrase,
+    RECOVERY_FILE, WORD_COUNTS, create_recovery, read_public_view, read_recovery,
+    save_public_account, save_recovery, validate_phrase,
 )
 from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
 from signing import check_acceptance, sign_send
+from watching import next_wallet_address, watch_wallet
+
+SCAN_LOCK = Lock()
 
 
 def rpc(method, *args, timeout=2, wallet=None, named=False):
@@ -42,19 +45,21 @@ def check_network():
     return info["blocks"]
 
 
-def scan_address(address):
+def scan_address(account):
     check_network()
-    scan = json.loads(
-        rpc("scantxoutset", "start", json.dumps([f"addr({address})"]), timeout=30),
-        parse_float=Decimal,
-    )
+    descriptors = account.scan_objects() if isinstance(account, PublicAccount) else [f"addr({account})"]
+    with SCAN_LOCK:
+        scan = json.loads(
+            rpc("scantxoutset", "start", json.dumps(descriptors), timeout=30),
+            parse_float=Decimal,
+        )
     if not scan.get("success"):
         raise RuntimeError("O Bitcoin Core não concluiu a consulta.")
     return scan
 
 
-def scan_receipts(address):
-    scan = scan_address(address)
+def scan_receipts(account):
+    scan = scan_address(account)
     height = scan["height"]
     receipts = [
         (
@@ -124,7 +129,15 @@ class WalletApp(tk.Tk):
         ).pack(anchor="w")
         ttk.Button(panel, text="Verificar nó regtest", command=self.refresh).pack(anchor="w", pady=8)
         ttk.Separator(panel).pack(fill="x", pady=12)
-        ttk.Button(panel, text="Mostrar endereço de recebimento", command=self.receive).pack(anchor="w")
+        receive_controls = ttk.Frame(panel)
+        receive_controls.pack(fill="x")
+        ttk.Button(receive_controls, text="Mostrar endereço de recebimento", command=self.receive).pack(side="left")
+        self.new_address_button = ttk.Button(
+            receive_controls, text="Novo endereço", command=self.rotate_address, state="disabled"
+        )
+        self.new_address_button.pack(side="left", padx=8)
+        self.account = None
+        self.rotating_address = False
         self.address = tk.StringVar()
         ttk.Entry(panel, textvariable=self.address, state="readonly").pack(fill="x", pady=8)
         self.scan_button = ttk.Button(
@@ -207,20 +220,23 @@ class WalletApp(tk.Tk):
             self.refresh_receipts()
         self.after(15_000, self.poll_wallet)
 
+    def wallet_view(self):
+        return self.account or self.address.get()
+
     def refresh_history(self):
-        address = self.address.get()
-        if not address or self.history_running:
+        wallet_view = self.wallet_view()
+        if not wallet_view or self.history_running:
             return
         self.history_running = True
         self.history_status.set("Consultando o histórico no Bitcoin Core…")
 
         def calculate():
             check_network()
-            return read_history(rpc, address)
+            return read_history(rpc, wallet_view)
 
         def show(result):
             self.history_running = False
-            if address != self.address.get():
+            if wallet_view != self.wallet_view():
                 self.refresh_history()
                 return
             if isinstance(result, Exception):
@@ -279,7 +295,7 @@ class WalletApp(tk.Tk):
             return
         try:
             phrase = validate_phrase(phrase)
-            public_key = receiving_public_key(phrase)
+            account = public_account(phrase)
         except ValueError as error:
             messagebox.showerror("Restaurar carteira", str(error), parent=self)
             return
@@ -291,7 +307,7 @@ class WalletApp(tk.Tk):
         except (OSError, ValueError) as error:
             messagebox.showerror("Restaurar carteira", str(error), parent=self)
             return
-        self.show_public_key(public_key, "Carteira de teste restaurada.")
+        self.show_account(account, "Carteira de teste restaurada.")
 
     def unlock_phrase(self, parent=None):
         parent = parent or self
@@ -338,40 +354,78 @@ class WalletApp(tk.Tk):
 
     def show_address(self, phrase):
         try:
-            public_key = receiving_public_key(phrase)
+            account = public_account(phrase)
         except ValueError as error:
             self.status.set(str(error))
             return
-        self.show_public_key(public_key, "Primeiro endereço da carteira em regtest.")
+        self.show_account(account, "Endereço de recebimento disponível em regtest.")
 
-    def show_public_key(self, public_key, message):
+    def show_account(self, account, message):
         try:
-            save_public_address(public_key)
+            save_public_account(account)
         except OSError as error:
             message = f"Não foi possível salvar o acesso sem senha: {error}"
-        self.set_address(encode_p2wpkh(public_key, "bcrt"))
+        self.set_address(account.first_address, account)
         self.status.set(message)
 
     def open_public_view(self):
-        address = read_public_address()
-        if address is not None:
-            self.set_address(address)
+        view = read_public_view()
+        if view is not None:
+            self.set_address(*view)
+            if view[1] is None:
+                self.status.set("Mostre o endereço e digite a senha uma vez para ativar os novos endereços.")
         elif RECOVERY_FILE.is_file():
-            self.status.set(
-                "Clique em Mostrar endereço de recebimento para habilitar a consulta sem senha."
-            )
-        return address
+            self.status.set("Mostre o endereço de recebimento para habilitar a consulta sem senha.")
+        return view
 
-    def set_address(self, address):
-        if self.address.get() != address:
-            self.address.set(address)
+    def set_address(self, address, account):
+        previous = self.wallet_view()
+        self.account = account
+        self.address.set(address)
+        self.new_address_button.configure(
+            state="normal" if account is not None and not self.rotating_address else "disabled"
+        )
+        self.send_button.configure(state="normal" if account is not None else "disabled")
+        if self.wallet_view() != previous:
             self.clear_receipts()
             self.scan_button.configure(state="normal")
-            self.send_button.configure(state="normal")
             self.history_list.delete(*self.history_list.get_children())
             self.history_entries.clear()
             self.show_history_details()
             self.refresh_receipts()
+
+    def rotate_address(self):
+        account = self.account
+        if account is None or self.rotating_address:
+            return
+        self.rotating_address = True
+        self.new_address_button.configure(state="disabled")
+        self.status.set("Obtendo um novo endereço de recebimento…")
+
+        def calculate():
+            check_network()
+            wallet = watch_wallet(rpc, account)
+            address, _ = next_wallet_address(rpc, wallet, 0)
+            return address
+
+        def show(result):
+            self.rotating_address = False
+            if self.account != account:
+                self.new_address_button.configure(state="normal" if self.account else "disabled")
+                return
+            self.new_address_button.configure(state="normal")
+            if isinstance(result, Exception):
+                self.status.set(str(result))
+                return
+            try:
+                save_public_account(account, result)
+            except OSError as error:
+                self.status.set(f"Não foi possível salvar o novo endereço: {error}")
+                return
+            self.set_address(result, account)
+            self.status.set("Novo endereço de recebimento disponível.")
+
+        run_node_task(self, calculate, show)
 
     def open_send(self):
         window = tk.Toplevel(self)
@@ -380,7 +434,7 @@ class WalletApp(tk.Tk):
         window.grab_set()
         panel = ttk.Frame(window, padding=16)
         panel.pack(fill="both", expand=True)
-        source = self.address.get()
+        account = self.account
         ttk.Label(panel, text="Endereço de destino").pack(anchor="w")
         destination = ttk.Entry(panel, width=58)
         destination.pack(fill="x", pady=(4, 10))
@@ -413,7 +467,7 @@ class WalletApp(tk.Tk):
 
             def sign():
                 check_network()
-                signed = sign_send(rpc, draft, source, phrase)
+                signed = sign_send(rpc, draft, phrase)
                 check_acceptance(rpc, signed)
                 return signed
 
@@ -467,8 +521,8 @@ class WalletApp(tk.Tk):
             def calculate():
                 check_network()
                 if review:
-                    return prepare_send(rpc, scan_address, source, target, value)
-                _, script = validate_destination(rpc, source, target)
+                    return prepare_send(rpc, scan_address, account, target, value)
+                _, script = validate_destination(rpc, account.first_address, target)
                 rate = fee_rate(rpc)
                 return f"Taxa estimada: {estimated_fee(rate, 1, script)} sats ({rate:f} sat/vB, uma entrada)."
 
@@ -491,17 +545,19 @@ class WalletApp(tk.Tk):
         self.receipts.delete(*self.receipts.get_children())
 
     def refresh_receipts(self):
-        address = self.address.get()
+        wallet_view = self.wallet_view()
         self.refresh_history()
         if self.scan_button.instate(("disabled",)):
             return
         self.scan_button.configure(state="disabled")
         if self.balance.get() == "—":
             self.status.set("Consultando o Bitcoin Core…")
-        run_node_task(self, lambda: scan_receipts(address), lambda result: self.show_receipts(address, result))
+        run_node_task(
+            self, lambda: scan_receipts(wallet_view), lambda result: self.show_receipts(wallet_view, result)
+        )
 
-    def show_receipts(self, address, result):
-        if self.address.get() != address:
+    def show_receipts(self, wallet_view, result):
+        if self.wallet_view() != wallet_view:
             return
         self.scan_button.configure(state="normal")
         if isinstance(result, Exception):
@@ -518,7 +574,10 @@ class WalletApp(tk.Tk):
         self.status.set(f"Consulta concluída no bloco {height}.")
 
     def receive(self):
-        if self.open_public_view() is not None:
+        if self.account is not None:
+            return
+        view = self.open_public_view()
+        if view is not None and view[1] is not None:
             return
         phrase = self.unlock_phrase()
         if phrase is not None:
