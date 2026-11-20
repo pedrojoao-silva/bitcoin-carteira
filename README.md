@@ -93,3 +93,18 @@ de origem, envie para outro endereço regtest e mine mais um bloco. Confira
 o recebimento no destino e atualize o saldo da carteira. Use **outro**
 endereço para minerar esse último bloco, para que a recompensa não se some
 ao saldo de origem durante a conferência.
+
+### Teste automatizado de envio
+
+Com `bitcoind` e `bitcoin-cli` no PATH e o ambiente virtual ativo, execute
+na raiz do projeto:
+
+```sh
+PYTHONPATH=. python3 tests/regtest_send.py
+```
+
+O teste inicia um nó isolado em uma porta local temporária. Ele verifica que
+a preparação, a assinatura e a consulta de aceitação deixam a mempool vazia.
+Em seguida transmite outro envio, minera um bloco e confere os dois saldos
+e a taxa. O teste exercita as funções de envio usadas pela janela. O
+cancelamento pelo botão da interface continua sendo uma verificação manual.
