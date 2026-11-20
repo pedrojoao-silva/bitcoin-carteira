@@ -10,6 +10,7 @@ from cryptography.exceptions import InvalidTag
 
 from addresses import receiving_address
 from recovery import WORD_COUNTS, create_recovery, read_recovery, save_recovery, validate_phrase
+from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
 
 
 def rpc(method, *args, timeout=2):
@@ -32,7 +33,7 @@ def check_network():
     return info["blocks"]
 
 
-def scan_receipts(address):
+def scan_address(address):
     check_network()
     scan = json.loads(
         rpc("scantxoutset", "start", json.dumps([f"addr({address})"]), timeout=30),
@@ -40,6 +41,11 @@ def scan_receipts(address):
     )
     if not scan.get("success"):
         raise RuntimeError("O Bitcoin Core não concluiu a consulta.")
+    return scan
+
+
+def scan_receipts(address):
+    scan = scan_address(address)
     height = scan["height"]
     receipts = [
         (
@@ -50,6 +56,29 @@ def scan_receipts(address):
         for output in sorted(scan["unspents"], key=lambda output: output["height"], reverse=True)
     ]
     return height, receipts
+
+
+def run_node_task(window, calculate, show):
+    results = Queue()
+
+    def worker():
+        try:
+            results.put(calculate())
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, ArithmeticError, subprocess.TimeoutExpired) as error:
+            results.put(error)
+
+    def poll():
+        if not window.winfo_exists():
+            return
+        try:
+            result = results.get_nowait()
+        except Empty:
+            window.after(100, poll)
+            return
+        show(result)
+
+    Thread(target=worker, daemon=True).start()
+    window.after(100, poll)
 
 
 class WalletApp(tk.Tk):
@@ -89,6 +118,10 @@ class WalletApp(tk.Tk):
             state="disabled",
         )
         self.scan_button.pack(anchor="w")
+        self.send_button = ttk.Button(
+            panel, text="Preparar envio de teste", command=self.open_send, state="disabled"
+        )
+        self.send_button.pack(anchor="w", pady=(4, 0))
         self.balance = tk.StringVar(value="Saldo confirmado: —")
         ttk.Label(panel, textvariable=self.balance).pack(anchor="w", pady=8)
         ttk.Label(panel, text="Recebimentos confirmados ainda não gastos").pack(anchor="w")
@@ -216,6 +249,69 @@ class WalletApp(tk.Tk):
             self.address.set(address)
             self.clear_receipts()
             self.scan_button.configure(state="normal")
+            self.send_button.configure(state="normal")
+
+    def open_send(self):
+        window = tk.Toplevel(self)
+        window.title("Preparar envio · regtest")
+        window.transient(self)
+        window.grab_set()
+        panel = ttk.Frame(window, padding=16)
+        panel.pack(fill="both", expand=True)
+        source = self.address.get()
+        ttk.Label(panel, text="Endereço de destino").pack(anchor="w")
+        destination = ttk.Entry(panel, width=58)
+        destination.pack(fill="x", pady=(4, 10))
+        destination.focus_set()
+        ttk.Label(panel, text="Valor em sats").pack(anchor="w")
+        amount = ttk.Entry(panel)
+        amount.pack(fill="x", pady=(4, 10))
+        status = tk.StringVar()
+        ttk.Label(panel, textvariable=status, wraplength=450).pack(anchor="w", pady=(8, 0))
+
+        def start(review):
+            target = destination.get().strip()
+            try:
+                value = parse_amount(amount.get())
+            except ValueError as error:
+                status.set(str(error))
+                return
+            for widget in (destination, amount, estimate_button, review_button):
+                widget.configure(state="disabled")
+            status.set("Consultando o Bitcoin Core…")
+
+            def calculate():
+                check_network()
+                if review:
+                    return prepare_send(rpc, scan_address, source, target, value)
+                _, script = validate_destination(rpc, source, target)
+                rate = fee_rate(rpc)
+                return f"Taxa estimada: {estimated_fee(rate, 1, script)} sats ({rate:f} sat/vB, uma entrada)."
+
+            def show(result):
+                for widget in (destination, amount, estimate_button, review_button):
+                    widget.configure(state="normal")
+                if isinstance(result, (Exception, str)):
+                    status.set(str(result))
+                    return
+                status.set("Transação de teste preparada.")
+                messagebox.showinfo(
+                    "Revisão do envio · regtest",
+                    f"Destino: {result.destination}\n"
+                    f"Valor enviado: {result.amount} sats\n"
+                    f"Troco: {result.change} sats\n"
+                    f"Taxa efetiva: {result.fee} sats\n"
+                    f"Total debitado: {result.total} sats\n\n"
+                    "Transação preparada para revisão, sem assinatura.",
+                    parent=window,
+                )
+
+            run_node_task(window, calculate, show)
+
+        estimate_button = ttk.Button(panel, text="Estimar taxa", command=lambda: start(False))
+        estimate_button.pack(anchor="w")
+        review_button = ttk.Button(panel, text="Revisar envio", command=lambda: start(True))
+        review_button.pack(anchor="w", pady=(4, 0))
 
     def clear_receipts(self):
         self.balance.set("Saldo confirmado: —")
@@ -223,26 +319,12 @@ class WalletApp(tk.Tk):
 
     def refresh_receipts(self):
         address = self.address.get()
-        results = Queue()
-
-        def scan():
-            try:
-                results.put(scan_receipts(address))
-            except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
-                results.put(error)
-
         self.clear_receipts()
         self.scan_button.configure(state="disabled")
         self.status.set("Consultando o Bitcoin Core…")
-        Thread(target=scan, daemon=True).start()
-        self.after(100, self.show_receipts, address, results)
+        run_node_task(self, lambda: scan_receipts(address), lambda result: self.show_receipts(address, result))
 
-    def show_receipts(self, address, results):
-        try:
-            result = results.get_nowait()
-        except Empty:
-            self.after(100, self.show_receipts, address, results)
-            return
+    def show_receipts(self, address, result):
         if self.address.get() != address:
             return
         self.scan_button.configure(state="normal")

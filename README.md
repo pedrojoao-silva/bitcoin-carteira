@@ -65,8 +65,20 @@ bitcoin-cli -regtest generatetoaddress 1 '<endereço bcrt1q>'
 
 Atualize o saldo. A recompensa deve aparecer na tabela com uma confirmação.
 
-## Próxima etapa
+## Preparar envio em regtest
 
-Estimar a taxa em sat/vB, preparar a transação e exibir a taxa efetiva em
-sats (soma das entradas menos soma das saídas), junto ao destino, valor,
-troco e total debitado. Transmitir somente após a confirmação dessa transação.
+Mostre o endereço de recebimento e clique em **Preparar envio de teste**.
+Informe outro endereço regtest e um valor de pelo menos 546 sats, o limite
+conservador deste protótipo.
+
+**Estimar taxa** usa a taxa do nó e calcula uma previsão para uma entrada
+SegWit e uma saída de troco. **Revisar envio** seleciona saídas confirmadas
+disponíveis, prepara a transação sem assinatura e mostra o destino, o valor,
+o troco, a taxa efetiva e o total debitado. A taxa efetiva é a diferença
+entre as entradas e as saídas da transação preparada. Nesta etapa, o troco
+volta para o endereço de origem. Se o troco ficar abaixo do limite de 294
+sats, ele entra na taxa exibida na revisão.
+
+Use fundos de teste maduros para revisar o envio. Uma recompensa de mineração
+precisa de 100 confirmações para entrar na seleção. A próxima etapa é assinar
+a transação, conferir sua aceitação e só transmiti-la após confirmação.
