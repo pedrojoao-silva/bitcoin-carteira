@@ -5,15 +5,12 @@ from tkinter import messagebox, simpledialog, ttk
 
 from cryptography.exceptions import InvalidTag
 
-from recovery import WORD_COUNTS, create_recovery, read_recovery
+from addresses import receiving_address
+from recovery import WORD_COUNTS, create_recovery, read_recovery, save_recovery, validate_phrase
 
-WALLET = "carteira-lab"
 
-
-def rpc(method, *args, wallet=False):
+def rpc(method, *args):
     command = ["bitcoin-cli", "-regtest", "-rpcconnect=127.0.0.1", "-rpcport=18443", "-rpcclienttimeout=2"]
-    if wallet:
-        command.append(f"-rpcwallet={WALLET}")
     result = subprocess.run(
         [*command, method, *args], capture_output=True, text=True, timeout=3
     )
@@ -46,21 +43,21 @@ class WalletApp(tk.Tk):
         ttk.Button(phrase_controls, text="Ver frase salva", command=self.show_saved_phrase).pack(
             side="left"
         )
-        self.balance = tk.StringVar(value="Saldo indisponível")
-        ttk.Label(panel, textvariable=self.balance, font=("TkDefaultFont", 16)).pack(anchor="w")
-        ttk.Button(panel, text="Atualizar saldo", command=self.refresh).pack(anchor="w", pady=8)
+        ttk.Button(
+            panel, text="Restaurar com palavras", command=self.restore_wallet
+        ).pack(anchor="w")
+        ttk.Button(panel, text="Verificar nó regtest", command=self.refresh).pack(anchor="w", pady=8)
         ttk.Separator(panel).pack(fill="x", pady=12)
-        ttk.Button(panel, text="Gerar endereço de teste", command=self.receive).pack(anchor="w")
+        ttk.Button(panel, text="Mostrar endereço de recebimento", command=self.receive).pack(anchor="w")
         self.address = tk.StringVar()
         ttk.Entry(panel, textvariable=self.address, state="readonly").pack(fill="x", pady=8)
         self.status = tk.StringVar()
         ttk.Label(panel, textvariable=self.status, wraplength=470).pack(anchor="w")
-        self.after_idle(self.refresh)
 
     def ask_password(self, prompt):
         return simpledialog.askstring("Frase de recuperação", prompt, show="*", parent=self)
 
-    def create_phrase(self):
+    def new_password(self):
         password = self.ask_password("Crie uma senha local com pelo menos 12 caracteres.")
         if password is None:
             return
@@ -69,15 +66,46 @@ class WalletApp(tk.Tk):
             return
         if confirmation != password:
             messagebox.showerror("Senha local", "As senhas são diferentes.", parent=self)
+            return None
+        return password
+
+    def create_phrase(self):
+        password = self.new_password()
+        if password is None:
             return
         try:
             phrase = create_recovery(int(self.word_count.get()), password)
         except (OSError, ValueError) as error:
             messagebox.showerror("Frase de recuperação", str(error), parent=self)
             return
+        self.show_address(phrase)
         self.display_phrase(phrase)
 
-    def show_saved_phrase(self):
+    def restore_wallet(self):
+        phrase = simpledialog.askstring(
+            "Restaurar carteira", "Digite as palavras BIP39 de teste na ordem correta.",
+            show="*", parent=self,
+        )
+        if phrase is None:
+            return
+        try:
+            phrase = validate_phrase(phrase)
+            address = receiving_address(phrase)
+        except ValueError as error:
+            messagebox.showerror("Restaurar carteira", str(error), parent=self)
+            return
+        password = self.new_password()
+        if password is None:
+            return
+        try:
+            save_recovery(phrase, password)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Restaurar carteira", str(error), parent=self)
+            return
+        self.address.set(address)
+        self.status.set("Carteira de teste restaurada.")
+
+    def unlock_phrase(self):
         password = self.ask_password("Digite a senha local.")
         if password is None:
             return
@@ -93,7 +121,12 @@ class WalletApp(tk.Tk):
                 "Frase de recuperação", "Não foi possível abrir o arquivo local.", parent=self
             )
             return
-        self.display_phrase(phrase)
+        return phrase
+
+    def show_saved_phrase(self):
+        phrase = self.unlock_phrase()
+        if phrase is not None:
+            self.display_phrase(phrase)
 
     def display_phrase(self, phrase):
         words = phrase.split()
@@ -116,20 +149,22 @@ class WalletApp(tk.Tk):
     def refresh(self):
         try:
             height = self.check_network()
-            amount = rpc("getbalance", wallet=True)
-            self.balance.set(f"{amount} BTC de teste")
             self.status.set(f"Nó conectado · bloco {height}")
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
-            self.balance.set("Saldo indisponível")
             self.status.set(str(error))
 
-    def receive(self):
+    def show_address(self, phrase):
         try:
-            self.check_network()
-            self.address.set(rpc("getnewaddress", wallet=True))
-            self.status.set("Endereço de teste gerado.")
-        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+            self.address.set(receiving_address(phrase))
+        except ValueError as error:
             self.status.set(str(error))
+            return
+        self.status.set("Primeiro endereço da carteira em regtest.")
+
+    def receive(self):
+        phrase = self.unlock_phrase()
+        if phrase is not None:
+            self.show_address(phrase)
 
 
 if __name__ == "__main__":

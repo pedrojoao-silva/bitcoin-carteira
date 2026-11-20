@@ -26,13 +26,26 @@ def create_recovery(words, password, path=RECOVERY_FILE):
     if words not in STRENGTH:
         sizes = ", ".join(map(str, WORD_COUNTS))
         raise ValueError(f"Escolha uma destas quantidades de palavras: {sizes}.")
+    phrase = Mnemonic("english").generate(strength=STRENGTH[words])
+    save_recovery(phrase, password, path)
+    return phrase
+
+
+def validate_phrase(phrase):
+    phrase = " ".join(phrase.split()).lower()
+    if len(phrase.split()) not in WORD_COUNTS or not Mnemonic("english").check(phrase):
+        raise ValueError("Digite uma frase BIP39 válida da lista inglesa.")
+    return phrase
+
+
+def save_recovery(phrase, password, path=RECOVERY_FILE):
+    phrase = validate_phrase(phrase)
     if len(password) < 12:
         raise ValueError("Use uma senha com pelo menos 12 caracteres.")
 
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if path.exists():
         raise FileExistsError("Já existe uma frase de recuperação criptografada.")
-    phrase = Mnemonic("english").generate(strength=STRENGTH[words])
     salt = secrets.token_bytes(16)
     nonce = secrets.token_bytes(12)
     encrypted = AESGCM(derive_key(password, salt)).encrypt(
@@ -51,7 +64,6 @@ def create_recovery(words, password, path=RECOVERY_FILE):
         os.link(temporary, path)
     finally:
         os.unlink(temporary)
-    return phrase
 
 
 def read_recovery(password, path=RECOVERY_FILE):
@@ -62,4 +74,5 @@ def read_recovery(password, path=RECOVERY_FILE):
         base64.b64decode(record[name], validate=True)
         for name in ("salt", "nonce", "ciphertext")
     )
-    return AESGCM(derive_key(password, salt)).decrypt(nonce, encrypted, CONTEXT).decode("utf-8")
+    plaintext = AESGCM(derive_key(password, salt)).decrypt(nonce, encrypted, CONTEXT)
+    return validate_phrase(plaintext.decode("utf-8"))
