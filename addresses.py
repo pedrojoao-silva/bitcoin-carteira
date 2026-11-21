@@ -1,4 +1,4 @@
-"""Derive the first BIP84 receiving address for the regtest prototype."""
+"""Derive public BIP84 accounts for the wallet’s test networks."""
 
 import hashlib
 import hmac
@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from mnemonic import Mnemonic
+
+from networks import REGTEST, Network
 
 CURVE_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 HARDENED = 1 << 31
@@ -83,8 +85,8 @@ def receiving_public_key(phrase):
     return derive_public_key(seed, RECEIVING_PATH)
 
 
-def receiving_address(phrase):
-    return encode_p2wpkh(receiving_public_key(phrase), "bcrt")
+def receiving_address(phrase, network=REGTEST):
+    return encode_p2wpkh(receiving_public_key(phrase), network.bech32_prefix)
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,7 @@ class PublicAccount:
     first_address: str
     tpub: str
     fingerprint: str
+    network: Network = REGTEST
 
     def descriptor(self, branch):
         return f"wpkh([{self.fingerprint}/84h/1h/0h]{self.tpub}/{branch}/*)"
@@ -103,7 +106,7 @@ class PublicAccount:
         ]
 
 
-def public_account(phrase):
+def public_account(phrase, network=REGTEST):
     seed = Mnemonic.to_seed(phrase)
     master_key = derive_public_key(seed, ())
     private_key, chain_code, parent_key = derive_node(seed, ACCOUNT_PATH)
@@ -119,5 +122,6 @@ def public_account(phrase):
         number, digit = divmod(number, 58)
         encoded.append(BASE58_ALPHABET[digit])
     return PublicAccount(
-        receiving_address(phrase), "".join(reversed(encoded)), public_key_hash(master_key)[:4].hex()
+        receiving_address(phrase, network), "".join(reversed(encoded)),
+        public_key_hash(master_key)[:4].hex(), network,
     )

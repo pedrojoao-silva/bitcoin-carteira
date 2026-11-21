@@ -84,7 +84,7 @@ class SendSafetyTests(unittest.TestCase):
             path.write_bytes(b"encrypted wallet")
             with (
                 patch("app.check_network", return_value=102),
-                patch("app.remember_pending_txid", side_effect=lambda txid: remember_pending_txid(txid, path)),
+                patch("app.remember_pending_txid", side_effect=lambda txid, **_: remember_pending_txid(txid, path)),
                 patch("app.rpc", side_effect=subprocess.TimeoutExpired("bitcoin-cli", 2)) as rpc,
             ):
                 with self.assertRaises(app.BroadcastUncertain):

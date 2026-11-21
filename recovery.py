@@ -1,4 +1,4 @@
-"""Generate and encrypt a local BIP39 recovery phrase for the regtest prototype."""
+"""Generate and encrypt a local BIP39 recovery phrase for the test wallet."""
 
 import base64
 import hashlib
@@ -15,12 +15,18 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from mnemonic import Mnemonic
 
 from addresses import PublicAccount, encode_p2wpkh
+from networks import REGTEST
 
 STRENGTH = {12: 128, 15: 160, 18: 192, 21: 224, 24: 256}
 WORD_COUNTS = tuple(STRENGTH)
-CONTEXT = b"bitcoin-carteira:regtest:recovery:v1"
 DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-RECOVERY_FILE = DATA_HOME / "bitcoin-carteira" / "regtest-recovery.json"
+
+
+def profile_path(network):
+    return DATA_HOME / "bitcoin-carteira" / f"{network.name}-recovery.json"
+
+
+RECOVERY_FILE = profile_path(REGTEST)
 
 
 def derive_key(password, salt):
@@ -34,9 +40,9 @@ def generate_phrase(words):
     return Mnemonic("english").generate(strength=STRENGTH[words])
 
 
-def create_recovery(words, password, path=RECOVERY_FILE):
+def create_recovery(words, password, path=None, *, network=REGTEST):
     phrase = generate_phrase(words)
-    save_recovery(phrase, password, path)
+    save_recovery(phrase, password, path, network=network)
     return phrase
 
 
@@ -47,7 +53,8 @@ def validate_phrase(phrase):
     return phrase
 
 
-def save_recovery(phrase, password, path=RECOVERY_FILE):
+def save_recovery(phrase, password, path=None, *, network=REGTEST):
+    path = profile_path(network) if path is None else path
     phrase = validate_phrase(phrase)
     if len(password) < 12:
         raise ValueError("Use uma senha com pelo menos 12 caracteres.")
@@ -58,7 +65,7 @@ def save_recovery(phrase, password, path=RECOVERY_FILE):
     salt = secrets.token_bytes(16)
     nonce = secrets.token_bytes(12)
     encrypted = AESGCM(derive_key(password, salt)).encrypt(
-        nonce, phrase.encode("utf-8"), CONTEXT
+        nonce, phrase.encode("utf-8"), network.recovery_context
     )
     record = {"version": 1}
     for name, value in (("salt", salt), ("nonce", nonce), ("ciphertext", encrypted)):
@@ -82,7 +89,8 @@ def write_record(path, record, replace=False):
         Path(temporary).unlink(missing_ok=True)
 
 
-def save_public_account(account, address=None, path=RECOVERY_FILE):
+def save_public_account(account, address=None, path=None):
+    path = profile_path(account.network) if path is None else path
     record = {
         "recovery_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
         "first_address": account.first_address,
@@ -93,16 +101,17 @@ def save_public_account(account, address=None, path=RECOVERY_FILE):
     write_record(path.with_suffix(".public.json"), record, replace=True)
 
 
-def read_public_view(path=RECOVERY_FILE):
+def read_public_view(path=None, *, network=REGTEST):
+    path = profile_path(network) if path is None else path
     try:
         record = json.loads(path.with_suffix(".public.json").read_text(encoding="utf-8"))
         recovery_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         if record["recovery_hash"] != recovery_hash:
             return None
         if "tpub" in record:
-            account = PublicAccount(record["first_address"], record["tpub"], record["fingerprint"])
+            account = PublicAccount(record["first_address"], record["tpub"], record["fingerprint"], network)
             address = record["address"]
-            pattern = r"bcrt1q[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{38}"
+            pattern = network.bech32_prefix + r"1q[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{38}"
             if (
                 not re.fullmatch(pattern, address) or not re.fullmatch(pattern, account.first_address)
                 or not re.fullmatch(r"tpub[1-9A-HJ-NP-Za-km-z]{107}", account.tpub)
@@ -110,6 +119,8 @@ def read_public_view(path=RECOVERY_FILE):
             ):
                 return None
             return address, account
+        if network != REGTEST:
+            return None
         public_key = bytes.fromhex(record["public_key"])
         if len(public_key) != 33 or public_key[0] not in (2, 3):
             return None
@@ -159,7 +170,8 @@ def forget_pending_txid(txid, path=RECOVERY_FILE):
         path.with_suffix(".pending.json").unlink(missing_ok=True)
 
 
-def read_recovery(password, path=RECOVERY_FILE):
+def read_recovery(password, path=None, *, network=REGTEST):
+    path = profile_path(network) if path is None else path
     record = json.loads(path.read_text(encoding="utf-8"))
     if record["version"] != 1:
         raise ValueError("Formato de recuperação incompatível.")
@@ -167,5 +179,5 @@ def read_recovery(password, path=RECOVERY_FILE):
         base64.b64decode(record[name], validate=True)
         for name in ("salt", "nonce", "ciphertext")
     )
-    plaintext = AESGCM(derive_key(password, salt)).decrypt(nonce, encrypted, CONTEXT)
+    plaintext = AESGCM(derive_key(password, salt)).decrypt(nonce, encrypted, network.recovery_context)
     return validate_phrase(plaintext.decode("utf-8"))

@@ -1,3 +1,4 @@
+import argparse
 import json
 import subprocess
 import tkinter as tk
@@ -11,15 +12,17 @@ from cryptography.exceptions import InvalidTag
 
 from addresses import PublicAccount, public_account
 from history import read_history
+from networks import NETWORKS, REGTEST, SIGNET
 from recovery import (
-    RECOVERY_FILE, WORD_COUNTS, forget_pending_txid, forget_session, generate_phrase,
-    has_open_session, read_pending_txid, read_public_view, read_recovery, remember_pending_txid,
+    WORD_COUNTS, forget_pending_txid, forget_session, generate_phrase, has_open_session, profile_path,
+    read_pending_txid, read_public_view, read_recovery, remember_pending_txid,
     remember_session, save_public_account, save_recovery,
 )
 from sending import estimated_fee, fee_rate, parse_amount, prepare_send, validate_destination
 from signing import check_acceptance, sign_send
 from watching import next_wallet_address, watch_wallet
 
+NETWORK = REGTEST
 SCAN_LOCK = Lock()
 
 
@@ -29,7 +32,7 @@ class BroadcastUncertain(RuntimeError):
 
 def broadcast_send(signed):
     check_network()
-    remember_pending_txid(signed.txid)
+    remember_pending_txid(signed.txid, path=profile_path(NETWORK))
     try:
         txid = rpc("sendrawtransaction", signed.raw)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
@@ -41,7 +44,7 @@ def broadcast_send(signed):
 
 def rpc(method, *args, timeout=2, wallet=None, named=False):
     command = [
-        "bitcoin-cli", "-regtest", "-rpcconnect=127.0.0.1", "-rpcport=18443",
+        "bitcoin-cli", f"-{NETWORK.name}", "-rpcconnect=127.0.0.1", f"-rpcport={NETWORK.rpc_port}",
         f"-rpcclienttimeout={timeout}",
     ]
     if wallet is not None:
@@ -58,8 +61,12 @@ def rpc(method, *args, timeout=2, wallet=None, named=False):
 
 def check_network():
     info = json.loads(rpc("getblockchaininfo"))
-    if info.get("chain") != "regtest":
-        raise RuntimeError("Conecte um nó Bitcoin Core em regtest.")
+    if info.get("chain") != NETWORK.name:
+        raise RuntimeError(f"Conecte um nó Bitcoin Core na rede {NETWORK.name}.")
+    if NETWORK == SIGNET and info.get("initialblockdownload", True):
+        raise RuntimeError("Aguarde o Bitcoin Core terminar a sincronização da Signet.")
+    if NETWORK == SIGNET and info.get("pruned"):
+        raise RuntimeError("Use um nó Signet sem poda para consultar o histórico completo.")
     return info["blocks"]
 
 
@@ -68,7 +75,7 @@ def scan_address(account):
     descriptors = account.scan_objects() if isinstance(account, PublicAccount) else [f"addr({account})"]
     with SCAN_LOCK:
         scan = json.loads(
-            rpc("scantxoutset", "start", json.dumps(descriptors), timeout=30),
+            rpc("scantxoutset", "start", json.dumps(descriptors), timeout=120 if NETWORK == SIGNET else 30),
             parse_float=Decimal,
         )
     if not scan.get("success"):
@@ -77,7 +84,19 @@ def scan_address(account):
 
 
 def scan_receipts(account):
+    return receipt_rows(scan_address(account))
+
+
+def query_balance(account, previous_tip):
+    if previous_tip:
+        check_network()
+        if rpc("getbestblockhash") == previous_tip:
+            return None
     scan = scan_address(account)
+    return scan.get("bestblock"), *receipt_rows(scan)
+
+
+def receipt_rows(scan):
     height = scan["height"]
     receipts = [
         (
@@ -115,8 +134,8 @@ def run_node_task(window, calculate, show):
 
 class WalletApp(tk.Tk):
     def __init__(self):
-        super().__init__(className="BitcoinCarteira")
-        self.title("Carteira Bitcoin")
+        super().__init__(className=NETWORK.window_class)
+        self.title(f"Carteira Bitcoin · {NETWORK.name}")
         self.geometry("790x670")
         self.minsize(620, 560)
         image = tk.PhotoImage(file=Path(__file__).with_name("assets") / "logo.png")
@@ -125,15 +144,16 @@ class WalletApp(tk.Tk):
         self.entry_panel = self.build_entry_panel()
         self.wallet_panel = ttk.Frame(self, padding=24)
         self.session_version = 0
+        self.balance_tip = None
         panel = self.wallet_panel
         self.build_header(panel)
-        ttk.Label(panel, text="Saldo confirmado · regtest").pack(anchor="w")
+        ttk.Label(panel, text="Saldo confirmado").pack(anchor="w")
         self.balance = tk.StringVar(value="—")
         ttk.Label(panel, textvariable=self.balance, font=("TkDefaultFont", 28, "bold")).pack(
             anchor="w", pady=(0, 12)
         )
         ttk.Button(panel, text="Sair da carteira", command=self.sign_out).pack(anchor="e")
-        ttk.Button(panel, text="Verificar nó regtest", command=self.refresh).pack(anchor="w", pady=8)
+        ttk.Button(panel, text="Verificar nó Bitcoin Core", command=self.refresh).pack(anchor="w", pady=8)
         ttk.Separator(panel).pack(fill="x", pady=12)
         receive_controls = ttk.Frame(panel)
         receive_controls.pack(fill="x")
@@ -202,10 +222,10 @@ class WalletApp(tk.Tk):
         labels = ttk.Frame(header)
         labels.pack(side="left")
         ttk.Label(labels, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
-        ttk.Label(labels, text="Rede local de testes · regtest").pack(anchor="w")
+        ttk.Label(labels, text=NETWORK.label).pack(anchor="w")
 
     def show_entry(self):
-        exists = RECOVERY_FILE.is_file()
+        exists = profile_path(NETWORK).is_file()
         self.create_button.configure(state="disabled" if exists else "normal")
         self.open_button.configure(state="normal" if exists else "disabled")
         self.wallet_panel.pack_forget()
@@ -221,8 +241,8 @@ class WalletApp(tk.Tk):
         self.show_pending_notice()
 
     def resume_session(self):
-        if has_open_session():
-            view = read_public_view()
+        if has_open_session(path=profile_path(NETWORK)):
+            view = read_public_view(path=profile_path(NETWORK), network=NETWORK)
             if view is not None and view[1] is not None:
                 self.show_wallet(*view)
 
@@ -231,18 +251,18 @@ class WalletApp(tk.Tk):
         if phrase is None:
             return
         try:
-            account = public_account(phrase)
+            account = public_account(phrase, network=NETWORK)
         except ValueError as error:
             messagebox.showerror("Abrir carteira", str(error), parent=self)
             return
-        view = read_public_view()
+        view = read_public_view(path=profile_path(NETWORK), network=NETWORK)
         address = view[0] if view is not None and view[1] == account else account.first_address
         self.start_session(address, account)
 
     def start_session(self, address, account):
         try:
-            save_public_account(account, address)
-            remember_session()
+            save_public_account(account, address, path=profile_path(NETWORK))
+            remember_session(path=profile_path(NETWORK))
         except OSError as error:
             messagebox.showerror(
                 "Sessão local", f"Não foi possível lembrar a sessão neste computador.\n{error}", parent=self
@@ -251,7 +271,7 @@ class WalletApp(tk.Tk):
 
     def sign_out(self):
         try:
-            forget_session()
+            forget_session(path=profile_path(NETWORK))
         except OSError as error:
             messagebox.showerror("Sair da carteira", str(error), parent=self)
             return
@@ -268,14 +288,14 @@ class WalletApp(tk.Tk):
         self.show_entry()
 
     def show_pending_notice(self):
-        txid = read_pending_txid()
+        txid = read_pending_txid(path=profile_path(NETWORK))
         self.pending_notice.set(
             f"Confira o envio anterior no histórico antes de reenviar.\n{txid}" if txid else ""
         )
 
     def mark_broadcast_known(self, txid):
         try:
-            forget_pending_txid(txid)
+            forget_pending_txid(txid, path=profile_path(NETWORK))
         except OSError as error:
             self.status.set(f"Não foi possível limpar o aviso de envio: {error}")
         self.show_pending_notice()
@@ -320,7 +340,7 @@ class WalletApp(tk.Tk):
 
     def poll_wallet(self):
         if self.address.get():
-            self.refresh_receipts()
+            self.refresh_receipts(only_if_tip_changed=True)
         self.after(15_000, self.poll_wallet)
 
     def wallet_view(self):
@@ -351,7 +371,7 @@ class WalletApp(tk.Tk):
             selected = self.history_list.selection()
             self.history_list.delete(*self.history_list.get_children())
             self.history_entries = {entry.txid: entry for entry in result}
-            pending_txid = read_pending_txid()
+            pending_txid = read_pending_txid(path=profile_path(NETWORK))
             pending_entry = self.history_entries.get(pending_txid)
             if pending_entry and (
                 pending_entry.status == "Pendente" or pending_entry.confirmations > 0
@@ -420,8 +440,8 @@ class WalletApp(tk.Tk):
             )
 
         try:
-            account = public_account(phrase)
-            save_recovery(phrase, password)
+            account = public_account(phrase, network=NETWORK)
+            save_recovery(phrase, password, path=profile_path(NETWORK), network=NETWORK)
         except (OSError, ValueError) as error:
             messagebox.showerror("Criar carteira", str(error), parent=self)
             self.show_entry()
@@ -434,7 +454,7 @@ class WalletApp(tk.Tk):
         if password is None:
             return
         try:
-            phrase = read_recovery(password)
+            phrase = read_recovery(password, path=profile_path(NETWORK), network=NETWORK)
         except InvalidTag:
             messagebox.showerror(
                 "Frase de recuperação", "Senha incorreta ou arquivo alterado.", parent=parent
@@ -509,7 +529,7 @@ class WalletApp(tk.Tk):
                 self.status.set(str(result))
                 return
             try:
-                save_public_account(account, result)
+                save_public_account(account, result, path=profile_path(NETWORK))
             except OSError as error:
                 self.status.set(f"Não foi possível salvar o novo endereço: {error}")
                 return
@@ -519,7 +539,7 @@ class WalletApp(tk.Tk):
         run_node_task(self, calculate, show)
 
     def open_send(self):
-        pending_txid = read_pending_txid()
+        pending_txid = read_pending_txid(path=profile_path(NETWORK))
         if pending_txid and not messagebox.askyesno(
             "Envio anterior sem confirmação",
             f"O nó ainda não confirmou a transmissão anterior.\n{pending_txid}\n\n"
@@ -529,7 +549,7 @@ class WalletApp(tk.Tk):
             self.refresh_history()
             return
         window = tk.Toplevel(self)
-        window.title("Preparar envio · regtest")
+        window.title(f"Preparar envio · {NETWORK.name}")
         window.transient(self)
         window.grab_set()
         panel = ttk.Frame(window, padding=16)
@@ -557,7 +577,7 @@ class WalletApp(tk.Tk):
                 f"Taxa efetiva: {draft.fee} sats\n"
                 f"Total debitado: {draft.total} sats"
             )
-            messagebox.showinfo("Revisão do envio · regtest", details, parent=window)
+            messagebox.showinfo(f"Revisão do envio · {NETWORK.name}", details, parent=window)
             phrase = self.unlock_phrase(window)
             if phrase is None:
                 set_controls("normal")
@@ -567,7 +587,7 @@ class WalletApp(tk.Tk):
 
             def sign():
                 check_network()
-                signed = sign_send(rpc, draft, phrase)
+                signed = sign_send(rpc, draft, phrase, network=NETWORK)
                 check_acceptance(rpc, signed)
                 return signed
 
@@ -577,7 +597,7 @@ class WalletApp(tk.Tk):
                     status.set(str(result))
                     return
                 accepted = messagebox.askyesno(
-                    "Confirmar envio · regtest",
+                    f"Confirmar envio · {NETWORK.name}",
                     details + "\n\nTransmitir esta transação de teste agora?",
                     default=messagebox.NO, parent=window,
                 )
@@ -641,10 +661,11 @@ class WalletApp(tk.Tk):
         review_button.pack(anchor="w", pady=(4, 0))
 
     def clear_receipts(self):
+        self.balance_tip = None
         self.balance.set("—")
         self.receipts.delete(*self.receipts.get_children())
 
-    def refresh_receipts(self):
+    def refresh_receipts(self, only_if_tip_changed=False):
         wallet_view = self.wallet_view()
         self.refresh_history()
         if self.scan_button.instate(("disabled",)):
@@ -653,8 +674,10 @@ class WalletApp(tk.Tk):
         session = self.session_version
         if self.balance.get() == "—":
             self.status.set("Consultando o Bitcoin Core…")
+        previous_tip = self.balance_tip if only_if_tip_changed else None
         run_node_task(
-            self, lambda: scan_receipts(wallet_view), lambda result: self.show_receipts(wallet_view, session, result)
+            self, lambda: query_balance(wallet_view, previous_tip),
+            lambda result: self.show_receipts(wallet_view, session, result),
         )
 
     def show_receipts(self, wallet_view, session, result):
@@ -665,7 +688,9 @@ class WalletApp(tk.Tk):
             self.clear_receipts()
             self.status.set(str(result))
             return
-        height, receipts = result
+        if result is None:
+            return
+        self.balance_tip, height, receipts = result
         self.receipts.delete(*self.receipts.get_children())
         for receipt in receipts:
             self.receipts.insert("", "end", values=receipt)
@@ -674,5 +699,14 @@ class WalletApp(tk.Tk):
         self.balance.set(f"{formatted} sats")
         self.status.set(f"Consulta concluída no bloco {height}.")
 
-if __name__ == "__main__":
+def main():
+    global NETWORK
+    parser = argparse.ArgumentParser(description="Carteira Bitcoin para redes de teste")
+    parser.add_argument("--network", choices=NETWORKS, default=REGTEST.name)
+    options = parser.parse_args()
+    NETWORK = NETWORKS[options.network]
     WalletApp().mainloop()
+
+
+if __name__ == "__main__":
+    main()

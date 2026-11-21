@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Carteira Bitcoin (Signet)
+Comment=Carteira Bitcoin para a rede pública de testes Signet
+Exec=/usr/bin/bitcoin-carteira --network signet
+Icon=/usr/share/bitcoin-carteira/assets/logo.png
+Terminal=false
+Categories=Office;Finance;
+StartupWMClass=BitcoinCarteiraSignet

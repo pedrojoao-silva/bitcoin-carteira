@@ -13,6 +13,7 @@ from addresses import (
     ACCOUNT_PATH, ADDRESS_LIMIT, CURVE_ORDER, compressed_public_key, derive_private_key,
     encode_p2wpkh, public_key_hash,
 )
+from networks import REGTEST
 from sending import decode_amount
 
 
@@ -38,7 +39,7 @@ def vector(data):
     return compact_size(len(data)) + data
 
 
-def sign_send(rpc, draft, phrase):
+def sign_send(rpc, draft, phrase, *, network=REGTEST):
     decoded = json.loads(rpc("decoderawtransaction", draft.unsigned_hex), parse_float=Decimal)
     inputs = decoded["vin"]
     outputs = decoded["vout"]
@@ -65,7 +66,7 @@ def sign_send(rpc, draft, phrase):
         change_key = compressed_public_key(derive_private_key(seed, (*ACCOUNT_PATH, branch, index)))
         change_script = "0014" + public_key_hash(change_key).hex()
         if (
-            encode_p2wpkh(change_key, "bcrt") != draft.change_address
+            encode_p2wpkh(change_key, network.bech32_prefix) != draft.change_address
             or not any(out["scriptPubKey"]["hex"] == change_script for out in outputs
                        if out["scriptPubKey"]["address"] == draft.change_address)
         ):

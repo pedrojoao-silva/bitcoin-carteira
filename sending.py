@@ -1,4 +1,4 @@
-"""Estimate and prepare unsigned regtest transactions."""
+"""Estimate and prepare unsigned transactions on the configured test network."""
 
 import json
 from dataclasses import dataclass
@@ -75,7 +75,7 @@ def estimated_fee(rate, input_count, destination_script, with_change=True):
 def validate_destination(rpc, source, destination):
     info = json.loads(rpc("validateaddress", destination))
     if not info["isvalid"]:
-        raise ValueError("Digite um endereço válido da rede regtest.")
+        raise ValueError("Digite um endereço válido para a rede selecionada.")
     normalized = info["address"]
     if normalized == source:
         raise ValueError("O endereço de destino deve ser diferente do endereço de origem.")

@@ -3,7 +3,7 @@ set -eu
 
 packaging_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH='' cd -- "$packaging_dir/../.." && pwd)
-version='0.1.0~beta1'
+version='0.1.0~beta2'
 output_dir="$project_dir/dist"
 package="$output_dir/bitcoin-carteira_${version}_all.deb"
 staging=$(mktemp -d)
@@ -22,16 +22,17 @@ Priority: optional
 Architecture: all
 Maintainer: Projeto Carteira Bitcoin
 Depends: python3 (>= 3.10), python3-tk, python3-cryptography, python3-mnemonic (>= 0.19)
-Description: Carteira Bitcoin desktop para regtest
+Description: Carteira Bitcoin desktop para regtest e Signet
  Cria carteiras BIP39, acompanha o saldo e assina transações de teste.
- Usa um nó Bitcoin Core regtest instalado separadamente.
+ Usa um nó Bitcoin Core instalado separadamente.
 CONTROL
 
-for module in addresses app history recovery sending signing watching; do
+for module in addresses app history networks recovery sending signing watching; do
     install -m 0644 "$project_dir/$module.py" "$staging/usr/share/bitcoin-carteira/"
 done
 install -m 0644 "$project_dir/assets/logo.png" "$staging/usr/share/bitcoin-carteira/assets/"
 install -m 0644 "$packaging_dir/bitcoin-carteira.desktop" "$staging/usr/share/applications/"
+install -m 0644 "$packaging_dir/bitcoin-carteira-signet.desktop" "$staging/usr/share/applications/"
 install -m 0755 "$packaging_dir/bitcoin-carteira" "$staging/usr/bin/"
 
 dpkg-deb --root-owner-group --build "$staging" "$package"

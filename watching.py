@@ -6,6 +6,7 @@ import re
 from threading import Lock
 
 from addresses import ADDRESS_LIMIT, PublicAccount
+from networks import SIGNET
 
 WATCH_LOCK = Lock()
 
@@ -53,7 +54,8 @@ def ensure_watch_wallet(rpc, account):
             first, = json.loads(rpc("deriveaddresses", imports[0]["desc"], "[0,0]"))
             if first != account.first_address:
                 raise RuntimeError("O descritor público diverge do endereço de recuperação.")
-        results = json.loads(rpc("importdescriptors", json.dumps(missing), wallet=name, timeout=120))
+        timeout = 900 if isinstance(account, PublicAccount) and account.network == SIGNET else 120
+        results = json.loads(rpc("importdescriptors", json.dumps(missing), wallet=name, timeout=timeout))
         for result in results:
             if not result.get("success"):
                 reason = result.get("error", {}).get("message", "motivo indisponível")

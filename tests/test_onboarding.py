@@ -4,6 +4,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import app
+from networks import REGTEST
+from recovery import profile_path
 from addresses import public_account
 from recovery import (
     forget_session, generate_phrase, has_open_session, read_public_view, read_recovery,
@@ -44,7 +46,7 @@ class OnboardingTests(unittest.TestCase):
         ):
             app.WalletApp.create_phrase(window)
         self.assertEqual(
-            [("save_recovery", (phrase, password), {}),
+            [("save_recovery", (phrase, password), {"path": profile_path(REGTEST), "network": REGTEST}),
              ("start_session", (account.first_address, account), {})],
             actions.mock_calls,
         )

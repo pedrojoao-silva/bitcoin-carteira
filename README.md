@@ -1,6 +1,6 @@
 # Carteira Bitcoin
 
-Protótipo desktop para Linux com Python e Tkinter. A interface cria e abre carteiras de teste BIP39 e exibe endereços SegWit em regtest.
+Protótipo desktop para Linux com Python e Tkinter. A interface cria e abre carteiras de teste BIP39 e exibe endereços SegWit em regtest e Signet.
 
 ## Beta para Linux
 
@@ -9,14 +9,15 @@ Para gerar e instalar localmente, rode na raiz do projeto:
 
 ```sh
 sh packaging/linux/build-deb.sh
-sudo apt install './dist/bitcoin-carteira_0.1.0~beta1_all.deb'
+sudo apt install './dist/bitcoin-carteira_0.1.0~beta2_all.deb'
 ```
 
-Abra **Carteira Bitcoin** no menu de aplicativos ou execute
-`bitcoin-carteira` no terminal. O pacote instala apenas a carteira e suas
+Abra **Carteira Bitcoin** para regtest ou **Carteira Bitcoin (Signet)**
+para a rede pública de testes. Pelo terminal, use `bitcoin-carteira`
+ou `bitcoin-carteira --network signet`. O pacote instala apenas a carteira e suas
 dependências Python. Instale o Bitcoin Core separadamente e deixe
 `bitcoind` e `bitcoin-cli` disponíveis no PATH para usar saldo, histórico e
-envio. A beta opera exclusivamente em `regtest`.
+envio. A beta opera apenas nessas duas redes de teste.
 
 ## Executar pelo código-fonte
 
@@ -35,8 +36,9 @@ python3 app.py
 ```
 
 A criação, a abertura e a exibição do endereço salvo funcionam sem nó.
-Para verificar o nó ou consultar o saldo, inicie o Bitcoin Core com
-`bitcoind -regtest -listen=0 -connect=0`.
+Para usar regtest, inicie o Bitcoin Core com
+`bitcoind -regtest -listen=0 -connect=0`. Para usar Signet pelo código-fonte,
+execute `python3 app.py --network signet` e siga o fluxo abaixo.
 
 ## Criar e abrir a carteira
 
@@ -48,7 +50,8 @@ anotada. A interface exibe as palavras somente na criação.
 
 A senha local deriva a chave com scrypt. O aplicativo salva a frase com
 AES-256-GCM em `~/.local/share/bitcoin-carteira/regtest-recovery.json`
-(ou sob `XDG_DATA_HOME`, quando definido). O arquivo salvo permite abrir
+(ou sob `XDG_DATA_HOME`, quando definido). A Signet usa
+`signet-recovery.json` no mesmo diretório, com sessão e avisos de envio próprios. O arquivo salvo permite abrir
 a carteira existente com a senha local. Depois de abrir a carteira, o
 aplicativo lembra a sessão de consulta neste computador e pede a senha
 novamente para assinar cada envio.
@@ -61,7 +64,7 @@ disponíveis para a próxima abertura.
 
 Um arquivo auxiliar local guarda a conta pública BIP84 e o endereço exibido.
 O primeiro endereço P2WPKH usa o caminho `m/84'/1'/0'/0/0` e o prefixo
-`bcrt1q`. O protótipo usa a passphrase BIP39 vazia.
+`bcrt1q` em regtest ou `tb1q` em Signet. O protótipo usa a passphrase BIP39 vazia.
 
 Com o nó regtest em execução, clique em **Novo endereço** para receber
 em outro endereço da mesma carteira. O saldo inclui os endereços anteriores
@@ -87,10 +90,10 @@ bitcoin-cli -regtest generatetoaddress 1 '<endereço bcrt1q>'
 
 Atualize o saldo. A recompensa deve aparecer na tabela com uma confirmação.
 
-## Preparar envio em regtest
+## Preparar envio de teste
 
 Abra a carteira e clique em **Preparar envio de teste**.
-Informe outro endereço regtest e um valor de pelo menos 546 sats, o limite
+Informe outro endereço da rede selecionada e um valor de pelo menos 546 sats, o limite
 conservador deste protótipo.
 
 **Estimar taxa** usa a taxa do nó e calcula uma previsão para uma entrada
@@ -111,6 +114,32 @@ pelo nó. Se a conexão cair durante a transmissão, o aplicativo guarda o
 txid do envio e mantém o aviso ao reabrir a carteira. O aviso é removido
 quando o nó reconhece a transação na mempool ou em um bloco. Confira o
 histórico antes de preparar um novo pagamento.
+
+## Teste entre dois computadores pela Signet
+
+Em ambos os computadores, inicie um nó Bitcoin Core na Signet pública,
+sem poda e com o índice de filtros para acelerar a primeira busca do histórico:
+
+```sh
+bitcoind -signet -prune=0 -blockfilterindex=1 -daemonwait
+bitcoin-cli -signet getblockchaininfo
+```
+
+Aguarde a resposta indicar `chain: "signet"` e `initialblockdownload: false`.
+Abra **Carteira Bitcoin (Signet)** nos dois computadores. Cada pessoa cria
+uma carteira de teste própria. O destinatário compartilha apenas o endereço
+`tb1q…`, que precisa ter sido gerado por uma carteira na Signet.
+
+1. Envie fundos **de teste Signet** para a carteira de origem e espere confirmar.
+2. Envie 1.000 sats de teste para o endereço da outra pessoa e confira a taxa
+   exibida na revisão.
+3. Anote o txid e compare com a linha que aparece no histórico do destinatário.
+   Após um bloco público, confira o status e o valor nos dois computadores.
+   A origem deve perder o valor enviado mais a taxa e o destino deve ganhar
+   exatamente 1.000 sats de teste.
+
+O prefixo `tb1` também é usado por outras redes de teste. Combine com o
+destinatário que ambos estão usando a Signet pública antes de enviar.
 
 ## Histórico e confirmação no destino
 
