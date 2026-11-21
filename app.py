@@ -11,7 +11,7 @@ from tkinter import messagebox, simpledialog, ttk
 from cryptography.exceptions import InvalidTag
 
 from addresses import PublicAccount, public_account
-from appearance import BACKGROUND, apply_theme, stripe_table
+from appearance import BACKGROUND, apply_theme, style_activity_table
 from history import read_history
 from networks import NETWORKS, REGTEST, SIGNET
 from recovery import (
@@ -137,127 +137,151 @@ class WalletApp(tk.Tk):
     def __init__(self):
         super().__init__(className=NETWORK.window_class)
         self.title(f"Carteira Bitcoin · {NETWORK.name}")
-        self.geometry("960x740")
-        self.minsize(760, 660)
+        self.geometry("1060x750")
+        self.minsize(800, 600)
         apply_theme(self)
         image = tk.PhotoImage(file=Path(__file__).with_name("assets") / "logo.png")
-        self.logo = image.subsample(20)
+        self.logo = image.subsample(27)
         self.iconphoto(True, image.subsample(5), self.logo)
-        self.entry_panel = self.build_entry_panel()
-        self.wallet_panel = ttk.Frame(self, padding=(24, 20))
         self.session_version = 0
         self.balance_tip = None
-        panel = self.wallet_panel
-        header = self.build_header(panel)
-        ttk.Button(
-            header, text="Sair da carteira", command=self.sign_out, style="Dark.TButton",
-        ).pack(side="right")
-        ttk.Label(header, text=NETWORK.label, style="Network.TLabel").pack(side="right", padx=12)
-        self.build_wallet_cards(panel)
-        activity = ttk.Frame(panel)
-        activity.pack(fill="x", pady=(18, 6))
-        ttk.Label(activity, text="Atividade", style="Heading.TLabel").pack(side="left")
-        ttk.Button(
-            activity, text="Verificar nó", command=self.refresh,
-        ).pack(side="right")
-        self.scan_button = ttk.Button(
-            activity, text="Atualizar saldo", command=self.refresh_receipts, state="disabled",
-        )
-        self.scan_button.pack(side="right", padx=(0, 8))
-        tabs = ttk.Notebook(panel)
-        tabs.pack(fill="both", expand=True, pady=(0, 10))
-        tabs.enable_traversal()
-        coins = ttk.Frame(tabs, padding=12, style="Surface.TFrame")
-        history_tab = ttk.Frame(tabs, padding=12, style="Surface.TFrame")
-        tabs.add(history_tab, text="Histórico")
-        tabs.add(coins, text="Saídas disponíveis")
-        self.build_history_tab(history_tab)
-        ttk.Label(
-            coins, text="Recebimentos confirmados ainda não gastos", style="SurfaceMuted.TLabel",
-        ).pack(anchor="w")
-        table = ttk.Frame(coins, style="Surface.TFrame")
-        table.pack(fill="both", expand=True, pady=(4, 8))
-        self.receipts = ttk.Treeview(
-            table, columns=("output", "amount", "confirmations"), show="headings", height=5,
-        )
-        self.receipts.heading("output", text="Transação: saída")
-        self.receipts.heading("amount", text="Valor (sats)")
-        self.receipts.heading("confirmations", text="Confirmações")
-        self.receipts.column("output", width=390, minwidth=180)
-        self.receipts.column("amount", width=110, anchor="e", stretch=False)
-        self.receipts.column("confirmations", width=105, anchor="e", stretch=False)
-        scroll = ttk.Scrollbar(table, orient="vertical", command=self.receipts.yview)
-        self.receipts.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
-        self.receipts.pack(side="left", fill="both", expand=True)
-        stripe_table(self.receipts)
+        self.account = None
+        self.rotating_address = False
+        self.address = tk.StringVar()
         self.status = tk.StringVar()
-        ttk.Label(panel, textvariable=self.status, wraplength=680, style="Muted.TLabel").pack(anchor="w")
         self.pending_notice = tk.StringVar()
-        ttk.Label(panel, textvariable=self.pending_notice, wraplength=680, style="Warning.TLabel").pack(anchor="w")
+        self.entry_panel = self.build_entry_panel()
+        self.wallet_panel = self.build_wallet_panel()
         self.show_entry()
         self.after_idle(self.resume_session)
         self.after(15_000, self.poll_wallet)
 
     def build_entry_panel(self):
-        panel = ttk.Frame(self, padding=(24, 20))
-        header = self.build_header(panel)
-        ttk.Label(header, text=NETWORK.label, style="Network.TLabel").pack(side="right")
-        content = ttk.Frame(panel, padding=(36, 32), style="Card.TFrame")
-        content.place(relx=0.5, rely=0.54, anchor="center")
-        ttk.Label(content, text="Acessar carteira", style="SurfaceHeading.TLabel").pack(
-            anchor="w", pady=(0, 18)
+        panel = ttk.Frame(self, padding=24)
+        card = ttk.Frame(panel, padding=(36, 30), style="Card.TFrame")
+        card.place(relx=0.5, rely=0.49, anchor="center")
+        ttk.Label(card, image=self.logo, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text="Carteira Bitcoin", style="SurfaceHeading.TLabel").pack(
+            anchor="w", pady=(8, 4)
         )
+        ttk.Label(card, text=NETWORK.label, style="Network.TLabel").pack(anchor="w", pady=(0, 22))
         self.create_button = ttk.Button(
-            content, text="Criar carteira", width=28, command=self.create_phrase, style="Primary.TButton",
+            card, text="Criar carteira", width=28, command=self.create_phrase, style="Primary.TButton",
         )
         self.create_button.pack(fill="x", pady=(0, 8))
-        self.open_button = ttk.Button(
-            content, text="Abrir carteira existente", width=28, command=self.open_existing,
-        )
+        self.open_button = ttk.Button(card, text="Abrir carteira existente", command=self.open_existing)
         self.open_button.pack(fill="x")
         return panel
 
-    def build_header(self, panel):
-        header = ttk.Frame(panel, padding=(14, 5), style="Dark.TFrame")
-        header.pack(fill="x", pady=(0, 15))
-        ttk.Label(header, image=self.logo, style="Dark.TLabel").pack(side="left", padx=(0, 6))
-        ttk.Label(header, text="Carteira Bitcoin", style="Brand.TLabel").pack(side="left")
-        return header
+    def build_wallet_panel(self):
+        panel = ttk.Frame(self)
+        sidebar = ttk.Frame(panel, width=194, padding=(15, 18), style="Sidebar.TFrame")
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        ttk.Label(sidebar, image=self.logo, style="Sidebar.TLabel").pack(anchor="w")
+        ttk.Label(sidebar, text="Carteira Bitcoin", style="Brand.TLabel").pack(anchor="w", pady=(5, 24))
+        self.nav_buttons = {}
+        for name, label in (
+            ("overview", "Visão geral"), ("receive", "Receber"),
+            ("history", "Histórico"), ("coins", "Saídas disponíveis"),
+        ):
+            button = ttk.Button(
+                sidebar, text=label, style="Nav.TButton",
+                command=lambda view=name: self.show_page(view),
+            )
+            button.pack(fill="x", pady=(0, 4))
+            self.nav_buttons[name] = button
+        ttk.Button(
+            sidebar, text="Sair da carteira", command=self.sign_out, style="Nav.TButton",
+        ).pack(side="bottom", fill="x")
 
-    def build_wallet_cards(self, panel):
-        cards = ttk.Frame(panel)
-        cards.pack(fill="x")
-        cards.columnconfigure(0, weight=4, minsize=263)
-        cards.columnconfigure(1, weight=5, minsize=315)
-
-        balance_card = ttk.Frame(cards, padding=(20, 16), style="Dark.TFrame")
-        balance_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        ttk.Label(balance_card, text="Saldo confirmado · sats", style="Dark.TLabel").pack(anchor="w")
-        self.balance = tk.StringVar(value="—")
-        ttk.Label(balance_card, textvariable=self.balance, style="Balance.TLabel").pack(anchor="w", pady=(4, 8))
-        self.send_button = ttk.Button(
-            balance_card, text="Preparar envio de teste", command=self.open_send,
-            state="disabled", style="Primary.TButton",
+        content = ttk.Frame(panel, padding=(24, 19, 24, 12))
+        content.pack(side="left", fill="both", expand=True)
+        top = ttk.Frame(content)
+        top.pack(fill="x", pady=(0, 16))
+        self.page_title = tk.StringVar()
+        ttk.Label(top, textvariable=self.page_title, style="Title.TLabel").pack(side="left")
+        ttk.Label(top, text=NETWORK.label, style="Network.TLabel").pack(side="right")
+        ttk.Label(content, textvariable=self.status, wraplength=550, style="Muted.TLabel").pack(
+            side="bottom", anchor="w", pady=(4, 0)
         )
-        self.send_button.pack(anchor="w")
+        ttk.Label(content, textvariable=self.pending_notice, wraplength=550, style="Warning.TLabel").pack(
+            side="bottom", anchor="w"
+        )
 
-        receive_card = ttk.Frame(cards, padding=(18, 14), style="Card.TFrame")
-        receive_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        ttk.Label(receive_card, text="Receber", style="SurfaceHeading.TLabel").pack(anchor="w")
+        stack = ttk.Frame(content)
+        stack.pack(fill="both", expand=True)
+        stack.columnconfigure(0, weight=1)
+        stack.rowconfigure(0, weight=1)
+        self.pages = {}
+        for name, build in (
+            ("overview", self.build_overview), ("receive", self.build_receive_page),
+            ("history", self.build_history_tab), ("coins", self.build_coins_page),
+        ):
+            page = ttk.Frame(stack)
+            page.grid(row=0, column=0, sticky="nsew")
+            build(page)
+            self.pages[name] = page
+        self.show_page("overview")
+        return panel
+
+    def show_page(self, page):
+        self.pages[page].tkraise()
+        for name, button in self.nav_buttons.items():
+            button.configure(style="Current.Nav.TButton" if name == page else "Nav.TButton")
+        self.page_title.set(self.nav_buttons[page].cget("text"))
+
+    def build_overview(self, panel):
+        hero = ttk.Frame(panel, padding=(24, 20), style="Hero.TFrame")
+        hero.pack(fill="x", pady=(0, 20))
+        ttk.Label(hero, text="Saldo confirmado", style="Hero.TLabel").pack(anchor="w")
+        amount = ttk.Frame(hero, style="Hero.TFrame")
+        amount.pack(fill="x", pady=(3, 0))
+        self.balance = tk.StringVar(value="—")
+        self.balance_btc = tk.StringVar()
+        ttk.Label(amount, textvariable=self.balance, style="Balance.TLabel").pack(side="left")
+        ttk.Label(amount, text="sats", style="Unit.TLabel").pack(side="left", padx=8, anchor="s", pady=9)
+        ttk.Label(hero, textvariable=self.balance_btc, style="Hero.TLabel").pack(anchor="w")
+        actions = ttk.Frame(hero, style="Hero.TFrame")
+        actions.pack(fill="x", pady=(14, 0))
+        self.send_button = ttk.Button(
+            actions, text="Enviar", command=self.open_send, state="disabled", style="Primary.TButton",
+        )
+        self.send_button.pack(side="left")
+        ttk.Button(actions, text="Receber", command=lambda: self.show_page("receive")).pack(side="left", padx=8)
+
+        section = ttk.Frame(panel)
+        section.pack(fill="x", pady=(0, 7))
+        ttk.Label(section, text="Atividade recente", style="Heading.TLabel").pack(side="left")
+        ttk.Button(section, text="Ver histórico", command=lambda: self.show_page("history")).pack(side="right")
+        self.recent_status = tk.StringVar()
+        ttk.Label(panel, textvariable=self.recent_status, style="Muted.TLabel").pack(anchor="w")
+        self.recent_activity = self.build_activity_table(panel, compact=True)
+        self.recent_activity.bind("<Double-1>", self.open_recent_entry)
+        self.recent_activity.bind("<Return>", self.open_recent_entry)
+        controls = ttk.Frame(panel)
+        controls.pack(fill="x", pady=(9, 0))
+        self.scan_button = ttk.Button(
+            controls, text="Atualizar saldo", command=self.refresh_receipts, state="disabled",
+        )
+        self.scan_button.pack(side="left", padx=(0, 8))
+        ttk.Button(controls, text="Verificar nó", command=self.refresh).pack(side="left")
+
+    def build_receive_page(self, panel):
+        card = ttk.Frame(panel, padding=(24, 20), style="Card.TFrame")
+        card.pack(fill="x")
+        ttk.Label(card, text="Endereço de recebimento", style="SurfaceHeading.TLabel").pack(anchor="w")
         ttk.Label(
-            receive_card, text="Endereço de recebimento", style="SurfaceMuted.TLabel",
-        ).pack(anchor="w", pady=(2, 5))
-        self.account = None
-        self.rotating_address = False
-        self.address = tk.StringVar()
-        ttk.Entry(
-            receive_card, textvariable=self.address, state="readonly", width=24, font="TkFixedFont",
-        ).pack(fill="x", pady=(0, 8))
-        controls = ttk.Frame(receive_card, style="Surface.TFrame")
+            card, text="Compartilhe este endereço para receber nesta rede de teste.",
+            style="SurfaceMuted.TLabel",
+        ).pack(anchor="w", pady=(4, 14))
+        ttk.Entry(card, textvariable=self.address, state="readonly", font="TkFixedFont").pack(
+            fill="x", pady=(0, 12)
+        )
+        controls = ttk.Frame(card, style="Surface.TFrame")
         controls.pack(fill="x")
         self.copy_address_button = ttk.Button(
-            controls, text="Copiar endereço", state="disabled",
+            controls, text="Copiar endereço", state="disabled", style="Primary.TButton",
             command=lambda: self.copy_public_text(self.address.get(), "Endereço copiado."),
         )
         self.copy_address_button.pack(side="left", padx=(0, 8))
@@ -265,6 +289,27 @@ class WalletApp(tk.Tk):
             controls, text="Novo endereço", command=self.rotate_address, state="disabled",
         )
         self.new_address_button.pack(side="left")
+
+    def build_coins_page(self, panel):
+        ttk.Label(
+            panel, text="Recebimentos confirmados ainda não gastos", style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 8))
+        table = ttk.Frame(panel)
+        table.pack(fill="both", expand=True)
+        self.receipts = ttk.Treeview(
+            table, columns=("output", "amount", "confirmations"), show="headings", height=5,
+        )
+        self.receipts.heading("output", text="Transação: saída", anchor="w")
+        self.receipts.heading("amount", text="Valor (sats)", anchor="e")
+        self.receipts.heading("confirmations", text="Confirmações", anchor="e")
+        self.receipts.column("output", width=320, minwidth=130)
+        self.receipts.column("amount", width=114, anchor="e", stretch=False)
+        self.receipts.column("confirmations", width=108, anchor="e", stretch=False)
+        scroll = ttk.Scrollbar(table, orient="vertical", command=self.receipts.yview)
+        self.receipts.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.receipts.pack(side="left", fill="both", expand=True)
+        style_activity_table(self.receipts)
 
     def copy_public_text(self, value, confirmation):
         if value:
@@ -290,6 +335,7 @@ class WalletApp(tk.Tk):
         self.rotating_address = False
         self.entry_panel.pack_forget()
         self.wallet_panel.pack(fill="both", expand=True)
+        self.show_page("overview")
         self.set_address(address, account)
         self.show_pending_notice()
 
@@ -332,8 +378,7 @@ class WalletApp(tk.Tk):
         self.account = None
         self.address.set("")
         self.clear_receipts()
-        self.history_list.delete(*self.history_list.get_children())
-        self.history_entries.clear()
+        self.clear_history()
         self.show_history_details()
         self.history_status.set("Aguardando consulta do histórico.")
         self.status.set("")
@@ -353,37 +398,44 @@ class WalletApp(tk.Tk):
             self.status.set(f"Não foi possível limpar o aviso de envio: {error}")
         self.show_pending_notice()
 
-    def build_history_tab(self, panel):
-        self.history_status = tk.StringVar(value="Mostre o endereço para consultar o histórico.")
-        ttk.Label(
-            panel, textvariable=self.history_status, wraplength=650, style="SurfaceMuted.TLabel",
-        ).pack(anchor="w", pady=(0, 6))
-        self.history_list = ttk.Treeview(
-            panel, columns=("kind", "amount", "fee", "status", "confirmations"),
-            show="headings", height=5,
-        )
-        columns = (
-            ("kind", "Tipo", 90), ("amount", "Valor (sats)", 110),
-            ("fee", "Taxa (sats)", 90), ("status", "Status", 165),
-            ("confirmations", "Conf.", 55),
+    def build_activity_table(self, panel, *, compact=False):
+        area = ttk.Frame(panel)
+        area.pack(fill="both", expand=True)
+        columns = [
+            ("kind", "Tipo", 82), ("amount", "Valor (sats)", 116), ("status", "Status", 164),
+        ]
+        if not compact:
+            columns[2:2] = [("fee", "Taxa (sats)", 90)]
+            columns.append(("confirmations", "Conf.", 53))
+        table = ttk.Treeview(
+            area, columns=[column for column, _, _ in columns],
+            show="headings", height=4 if compact else 7, selectmode="browse",
         )
         for column, label, width in columns:
             anchor = "e" if column in {"amount", "fee", "confirmations"} else "w"
-            self.history_list.heading(column, text=label, anchor=anchor)
-            self.history_list.column(
-                column, width=width, minwidth=width, anchor=anchor, stretch=column == "status",
-            )
-        table_scroll = ttk.Scrollbar(panel, command=self.history_list.yview)
-        self.history_list.configure(yscrollcommand=table_scroll.set)
-        details = ttk.Frame(panel, style="Surface.TFrame")
-        details.pack(side="bottom", fill="x", pady=(8, 0))
+            table.heading(column, text=label, anchor=anchor)
+            table.column(column, width=width, minwidth=width, anchor=anchor, stretch=column == "status")
+        scroll = ttk.Scrollbar(area, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        table.pack(side="left", fill="both", expand=True)
+        style_activity_table(table)
+        return table
+
+    def build_history_tab(self, panel):
+        self.history_status = tk.StringVar(value="Aguardando consulta do histórico.")
+        ttk.Label(
+            panel, textvariable=self.history_status, wraplength=540, style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 8))
+        details = ttk.Frame(panel, padding=(12, 10), style="Surface.TFrame")
+        details.pack(side="bottom", fill="x", pady=(10, 0))
         self.history_txid = tk.StringVar()
         self.history_addresses = tk.StringVar()
         for label, variable in (("TXID", self.history_txid), ("Endereço", self.history_addresses)):
             row = ttk.Frame(details, style="Surface.TFrame")
-            row.pack(fill="x", pady=(0, 4))
-            ttk.Label(row, text=label, width=10, style="SurfaceMuted.TLabel").pack(side="left")
-            ttk.Entry(row, textvariable=variable, state="readonly", font="TkFixedFont").pack(
+            row.pack(fill="x", pady=3)
+            ttk.Label(row, text=label, width=9, style="SurfaceMuted.TLabel").pack(side="left")
+            ttk.Entry(row, textvariable=variable, state="readonly", font="TkFixedFont", width=24).pack(
                 side="left", fill="x", expand=True
             )
             if label == "TXID":
@@ -392,12 +444,54 @@ class WalletApp(tk.Tk):
                     command=lambda: self.copy_public_text(self.history_txid.get(), "TXID copiado."),
                 )
                 self.copy_txid_button.pack(side="left", padx=(8, 0))
-        table_scroll.pack(side="right", fill="y")
-        self.history_list.pack(fill="both", expand=True)
-        stripe_table(self.history_list)
+        self.history_list = self.build_activity_table(panel)
         self.history_list.bind("<<TreeviewSelect>>", self.show_history_details)
         self.history_running = False
         self.history_entries = {}
+
+    def open_recent_entry(self, _event):
+        selected = self.recent_activity.selection()
+        if selected and self.history_list.exists(selected[0]):
+            self.show_page("history")
+            self.history_list.selection_set(selected[0])
+            self.history_list.see(selected[0])
+            self.history_list.focus(selected[0])
+            self.history_list.focus_set()
+
+    def clear_history(self):
+        for table in (self.history_list, self.recent_activity):
+            table.delete(*table.get_children())
+        self.history_entries.clear()
+        self.recent_status.set("Aguardando consulta do histórico.")
+
+    def populate_history(self, entries):
+        selected = self.history_list.selection()
+        recent_selected = self.recent_activity.selection()
+        self.clear_history()
+        self.history_entries = {entry.txid: entry for entry in entries}
+        for index, entry in enumerate(entries):
+            tags = ["alternate"] if index % 2 else []
+            if entry.confirmations > 0 and entry.status != "Recompensa imatura":
+                tags.append("confirmed")
+            elif entry.status in {"Conflito", "Cancelado"}:
+                tags.append("failed")
+            else:
+                tags.append("pending")
+            self.history_list.insert(
+                "", "end", iid=entry.txid, tags=tags,
+                values=(entry.kind, entry.amount, entry.fee if entry.fee is not None else "—",
+                        entry.status, entry.confirmations),
+            )
+            if index < 5:
+                self.recent_activity.insert(
+                    "", "end", iid=entry.txid, tags=tags, values=(entry.kind, entry.amount, entry.status),
+                )
+        if selected and selected[0] in self.history_entries:
+            self.history_list.selection_set(selected[0])
+        if recent_selected and self.recent_activity.exists(recent_selected[0]):
+            self.recent_activity.selection_set(recent_selected[0])
+        self.recent_status.set("" if entries else "Nenhuma transação encontrada.")
+        self.show_history_details()
 
     def show_history_details(self, _event=None):
         selected = self.history_list.selection()
@@ -435,25 +529,15 @@ class WalletApp(tk.Tk):
                 return
             if isinstance(result, Exception):
                 self.history_status.set(f"Histórico indisponível: {result}")
+                self.recent_status.set("Histórico indisponível. Consulte o nó Bitcoin Core.")
                 return
-            selected = self.history_list.selection()
-            self.history_list.delete(*self.history_list.get_children())
-            self.history_entries = {entry.txid: entry for entry in result}
+            self.populate_history(result)
             pending_txid = read_pending_txid(path=profile_path(NETWORK))
             pending_entry = self.history_entries.get(pending_txid)
             if pending_entry and (
                 pending_entry.status == "Pendente" or pending_entry.confirmations > 0
             ):
                 self.mark_broadcast_known(pending_txid)
-            for index, entry in enumerate(result):
-                self.history_list.insert(
-                    "", "end", iid=entry.txid, tags=("alternate",) if index % 2 else (),
-                    values=(entry.kind, entry.amount, entry.fee if entry.fee is not None else "—",
-                            entry.status, entry.confirmations),
-                )
-            if selected and selected[0] in self.history_entries:
-                self.history_list.selection_set(selected[0])
-            self.show_history_details()
             self.history_status.set(
                 "Atualizado pelo Bitcoin Core." if result else "Nenhuma transação encontrada."
             )
@@ -567,8 +651,7 @@ class WalletApp(tk.Tk):
         if self.wallet_view() != previous:
             self.clear_receipts()
             self.scan_button.configure(state="normal")
-            self.history_list.delete(*self.history_list.get_children())
-            self.history_entries.clear()
+            self.clear_history()
             self.show_history_details()
             self.refresh_receipts()
 
@@ -607,6 +690,62 @@ class WalletApp(tk.Tk):
             self.status.set("Novo endereço de recebimento disponível.")
 
         run_node_task(self, calculate, show)
+
+    def review_payment(self, parent, draft):
+        dialog = tk.Toplevel(parent)
+        dialog.title(f"Revisar envio · {NETWORK.name}")
+        dialog.configure(background=BACKGROUND)
+        dialog.transient(parent)
+        dialog.resizable(False, False)
+        panel = ttk.Frame(dialog, padding=24)
+        panel.pack(fill="both", expand=True)
+        ttk.Label(panel, text="Revisar envio", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(panel, text=NETWORK.label, style="Network.TLabel").pack(anchor="w", pady=(6, 14))
+        ttk.Label(panel, text="Destino", style="Muted.TLabel").pack(anchor="w")
+        target = tk.StringVar(master=dialog, value=draft.destination)
+        ttk.Entry(panel, textvariable=target, state="readonly", font="TkFixedFont", width=54).pack(
+            fill="x", pady=(5, 13),
+        )
+        card = ttk.Frame(panel, padding=(14, 10), style="Card.TFrame")
+        card.pack(fill="x", pady=(0, 15))
+        card.columnconfigure(1, weight=1)
+        items = (
+            ("Valor enviado", draft.amount), ("Troco", draft.change),
+            ("Taxa efetiva", draft.fee), ("Total debitado", draft.total),
+        )
+        for index, (label, amount) in enumerate(items):
+            strong = index == len(items) - 1
+            style = "SurfaceHeading.TLabel" if strong else "Surface.TLabel"
+            label_style = style if strong else "SurfaceMuted.TLabel"
+            ttk.Label(card, text=label, style=label_style).grid(row=index, column=0, sticky="w", pady=3)
+            formatted = f"{amount:,}".replace(",", ".")
+            ttk.Label(card, text=f"{formatted} sats", style=style).grid(
+                row=index, column=1, sticky="e", pady=3,
+            )
+        actions = ttk.Frame(panel)
+        actions.pack(fill="x")
+        accepted = False
+
+        def finish(proceed):
+            nonlocal accepted
+            accepted = proceed
+            dialog.destroy()
+
+        ttk.Button(
+            actions, text="Continuar para assinatura", style="Primary.TButton",
+            command=lambda: finish(True),
+        ).pack(side="right")
+        back = ttk.Button(actions, text="Voltar", command=lambda: finish(False))
+        back.pack(side="right", padx=(0, 8))
+        dialog.protocol("WM_DELETE_WINDOW", lambda: finish(False))
+        dialog.bind("<Escape>", lambda _event: finish(False))
+        dialog.wait_visibility()
+        dialog.grab_set()
+        back.focus_set()
+        parent.wait_window(dialog)
+        if parent.winfo_exists():
+            parent.grab_set()
+        return accepted
 
     def open_send(self):
         pending_txid = read_pending_txid(path=profile_path(NETWORK))
@@ -652,7 +791,10 @@ class WalletApp(tk.Tk):
                 f"Taxa efetiva: {draft.fee} sats\n"
                 f"Total debitado: {draft.total} sats"
             )
-            messagebox.showinfo(f"Revisão do envio · {NETWORK.name}", details, parent=window)
+            if not self.review_payment(window, draft):
+                set_controls("normal")
+                status.set("Revise o destino e o valor antes de continuar.")
+                return
             phrase = self.unlock_phrase(window)
             if phrase is None:
                 set_controls("normal")
@@ -740,6 +882,7 @@ class WalletApp(tk.Tk):
     def clear_receipts(self):
         self.balance_tip = None
         self.balance.set("—")
+        self.balance_btc.set("")
         self.receipts.delete(*self.receipts.get_children())
 
     def refresh_receipts(self, only_if_tip_changed=False):
@@ -774,6 +917,8 @@ class WalletApp(tk.Tk):
         total = sum(amount for _, amount, _ in receipts)
         formatted = f"{total:,}".replace(",", ".")
         self.balance.set(formatted)
+        btc = f"{Decimal(total).scaleb(-8):.8f}".replace(".", ",")
+        self.balance_btc.set(f"{btc} BTC")
         self.status.set(f"Consulta concluída no bloco {height}.")
 
 def main():

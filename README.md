@@ -9,7 +9,7 @@ Para gerar e instalar localmente, rode na raiz do projeto:
 
 ```sh
 sh packaging/linux/build-deb.sh
-sudo apt install './dist/bitcoin-carteira_0.1.0~beta3_all.deb'
+sudo apt install './dist/bitcoin-carteira_0.1.0~beta4_all.deb'
 ```
 
 Abra **Carteira Bitcoin** para regtest ou **Carteira Bitcoin (Signet)**
@@ -107,7 +107,8 @@ ficar abaixo do limite de 294 sats, ele entra na taxa exibida na revisão.
 Use fundos de teste maduros para revisar o envio. Uma recompensa de mineração
 precisa de 100 confirmações para entrar na seleção.
 
-Depois da revisão, digite a senha para assinar localmente. O Bitcoin Core
+Na revisão, clique em **Continuar para assinatura** e digite a senha para
+assinar localmente. O Bitcoin Core
 verifica a aceitação da transação assinada. Clique em **Sim** na janela
 **Confirmar envio** para transmiti-la. A janela mostra o txid retornado
 pelo nó. Se a conexão cair durante a transmissão, o aplicativo guarda o
@@ -152,7 +153,8 @@ voltam a aparecer depois de fechar e reabrir o aplicativo.
 Um envio aparece como **Pendente** quando está na mempool e **Confirmado no
 destino** quando entra em um bloco. Isso confirma o pagamento no endereço
 informado. A aba mostra o valor, a taxa e as confirmações. Selecione a linha
-para ver o endereço e o txid. O botão **Copiar TXID** copia o identificador
+para ver o endereço e o txid. Na visão geral, clique duas vezes em uma
+transação recente para abri-la no histórico. **Copiar TXID** copia o identificador
 selecionado. No painel **Receber**, **Copiar endereço** copia o endereço exibido.
 
 Para testar de ponta a ponta em regtest, gere 101 blocos para o endereço

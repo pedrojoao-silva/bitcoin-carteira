@@ -16,8 +16,9 @@ SIGNED = SignedSend(TXID, "0011")
 
 
 class SendSafetyTests(unittest.TestCase):
-    def review(self, *, wrong_password=False, accept=False, node_error=None):
+    def review(self, *, review_accepted=True, wrong_password=False, accept=False, node_error=None):
         wallet = Mock()
+        wallet.review_payment.return_value = review_accepted
         wallet.unlock_phrase.side_effect = lambda parent: app.WalletApp.unlock_phrase(wallet, parent)
         draft = Mock(destination="test-destination", amount=100_000, change=50_000, fee=142, total=100_142)
         buttons = {}
@@ -43,7 +44,6 @@ class SendSafetyTests(unittest.TestCase):
             patch("app.ttk.Button", side_effect=button),
             patch("app.read_pending_txid", return_value=None),
             patch("app.run_node_task", side_effect=run_task),
-            patch("app.messagebox.showinfo"),
             patch("app.messagebox.showerror") as show_error,
             patch("app.messagebox.askyesno", return_value=accept) as confirm,
             patch("app.read_recovery", return_value="phrase",
@@ -56,8 +56,13 @@ class SendSafetyTests(unittest.TestCase):
         ):
             app.WalletApp.open_send(wallet)
             buttons["Revisar envio"]()
+            wallet.review_payment.assert_called_once()
             broadcast.assert_not_called()
-            if wrong_password:
+            if not review_accepted:
+                wallet.unlock_phrase.assert_not_called()
+                sign.assert_not_called()
+                confirm.assert_not_called()
+            elif wrong_password:
                 show_error.assert_called_once()
                 sign.assert_not_called()
                 confirm.assert_not_called()
@@ -71,6 +76,9 @@ class SendSafetyTests(unittest.TestCase):
 
     def test_wrong_password_never_signs_or_broadcasts(self):
         self.review(wrong_password=True)
+
+    def test_back_from_review_does_not_request_password(self):
+        self.review(review_accepted=False)
 
     def test_rejecting_final_confirmation_never_broadcasts(self):
         self.review(accept=False)

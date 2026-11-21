@@ -3,7 +3,7 @@ set -eu
 
 packaging_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH='' cd -- "$packaging_dir/../.." && pwd)
-version='0.1.0~beta3'
+version='0.1.0~beta4'
 output_dir="$project_dir/dist"
 package="$output_dir/bitcoin-carteira_${version}_all.deb"
 staging=$(mktemp -d)

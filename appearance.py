@@ -1,19 +1,20 @@
-"""Shared color, typography and widget styles for the desktop interface."""
+"""Shared colors and ttk styles for the desktop wallet."""
 
 import tkinter.font as tkfont
 from tkinter import ttk
 
-BACKGROUND = "#eef3f8"
-SURFACE = "#ffffff"
-INK = "#152136"
-MUTED = "#52647b"
-BORDER = "#d5dfe9"
-NAVY = "#111b2e"
-NAVY_MUTED = "#b9cadb"
-MINT = "#6ae6cf"
-TEAL = "#075c50"
-SELECTED = "#d7f5ee"
-WARNING = "#854809"
+BACKGROUND = "#101820"
+SURFACE = "#18242e"
+SIDEBAR = "#0c141c"
+HERO = "#20352f"
+INK = "#f1f5f4"
+MUTED = "#a3b7c2"
+BORDER = "#344754"
+MINT = "#74e4bc"
+NAV_ACTIVE = "#233b38"
+SELECTED = "#31504b"
+WARNING = "#f3c381"
+ERROR = "#ffaaa6"
 
 
 def apply_theme(window):
@@ -29,73 +30,77 @@ def apply_theme(window):
         system_font.actual("family"),
     )
     system_font.configure(family=family, size=10)
-    heading = (family, 14, "bold")
     strong = (family, 10, "bold")
+    heading = (family, 15, "bold")
 
     style.configure(".", background=BACKGROUND, foreground=INK, font=system_font)
     style.configure("TFrame", background=BACKGROUND)
-    style.configure("Card.TFrame", background=SURFACE, bordercolor=BORDER, relief="solid", borderwidth=1)
     style.configure("Surface.TFrame", background=SURFACE)
-    style.configure("Dark.TFrame", background=NAVY)
-    style.configure("TLabelframe", background=BACKGROUND)
+    style.configure("Sidebar.TFrame", background=SIDEBAR)
+    style.configure("Hero.TFrame", background=HERO)
+    style.configure("Card.TFrame", background=SURFACE, bordercolor=BORDER, relief="solid", borderwidth=1)
     style.configure("TLabel", background=BACKGROUND, foreground=INK)
+    style.configure("Title.TLabel", font=(family, 23, "bold"))
     style.configure("Heading.TLabel", font=heading)
     style.configure("Muted.TLabel", foreground=MUTED)
     style.configure("Warning.TLabel", foreground=WARNING)
     style.configure("Surface.TLabel", background=SURFACE)
     style.configure("SurfaceMuted.TLabel", background=SURFACE, foreground=MUTED)
     style.configure("SurfaceHeading.TLabel", background=SURFACE, font=heading)
-    style.configure("Dark.TLabel", background=NAVY, foreground=NAVY_MUTED)
-    style.configure("Brand.TLabel", background=NAVY, foreground=SURFACE, font=(family, 17, "bold"))
-    style.configure("Network.TLabel", background="#1f334b", foreground="#d5e7f6", padding=(10, 6), font=strong)
-    style.configure("Balance.TLabel", background=NAVY, foreground=SURFACE, font=(family, 29, "bold"))
+    style.configure("Sidebar.TLabel", background=SIDEBAR)
+    style.configure("Brand.TLabel", background=SIDEBAR, font=(family, 12, "bold"))
+    style.configure("Network.TLabel", background=NAV_ACTIVE, foreground=MINT, padding=(9, 5), font=strong)
+    style.configure("Hero.TLabel", background=HERO, foreground=MUTED)
+    style.configure("Balance.TLabel", background=HERO, font=(family, 36, "bold"))
+    style.configure("Unit.TLabel", background=HERO, foreground=MINT, font=(family, 13, "bold"))
 
     style.configure(
-        "TButton", background=SURFACE, foreground=INK, bordercolor=BORDER, focuscolor=TEAL,
+        "TButton", background=SURFACE, foreground=INK, bordercolor=BORDER, focuscolor=MINT,
         lightcolor=SURFACE, darkcolor=SURFACE, padding=(13, 8), font=strong, anchor="center",
     )
     style.map(
-        "TButton", background=[("disabled", "#edf1f5"), ("pressed", "#dce8f3"), ("active", "#e8eff7")],
-        foreground=[("disabled", "#627488")], bordercolor=[("focus", TEAL)],
+        "TButton", background=[("disabled", "#202b34"), ("pressed", "#304550"), ("active", "#263844")],
+        foreground=[("disabled", "#889ba7")], bordercolor=[("focus", MINT)],
     )
     style.configure(
-        "Primary.TButton", background=MINT, foreground=NAVY, bordercolor=MINT,
-        lightcolor=MINT, darkcolor=MINT,
+        "Primary.TButton", background=MINT, foreground=SIDEBAR, bordercolor=MINT,
+        lightcolor=MINT, darkcolor=MINT, focuscolor=SIDEBAR,
     )
     style.map(
         "Primary.TButton",
-        background=[("disabled", "#d9ebe8"), ("pressed", "#36c5ac"), ("active", "#8aefdb")],
-        foreground=[("disabled", "#536c66")], bordercolor=[("focus", TEAL)],
+        background=[("disabled", "#273b39"), ("pressed", "#59c7a3"), ("active", "#95efd1")],
+        foreground=[("disabled", MUTED)], bordercolor=[("focus", INK)],
     )
     style.configure(
-        "Dark.TButton", background="#23354c", foreground=SURFACE, bordercolor="#38516d",
-        lightcolor="#23354c", darkcolor="#23354c", focuscolor=MINT,
+        "Nav.TButton", background=SIDEBAR, lightcolor=SIDEBAR, darkcolor=SIDEBAR,
+        bordercolor=SIDEBAR, foreground=MUTED, anchor="w", padding=(12, 10),
     )
-    style.map("Dark.TButton", background=[("pressed", "#334962"), ("active", "#2c425c")],
-              bordercolor=[("focus", MINT)])
+    style.map("Nav.TButton", background=[("active", SURFACE)], bordercolor=[("focus", MINT)])
     style.configure(
-        "TEntry", fieldbackground=SURFACE, foreground=INK, insertcolor=INK,
-        selectbackground=SELECTED, selectforeground=INK, padding=(9, 7), bordercolor=BORDER,
+        "Current.Nav.TButton", background=NAV_ACTIVE, lightcolor=NAV_ACTIVE, darkcolor=NAV_ACTIVE,
+        bordercolor=NAV_ACTIVE, foreground=MINT,
     )
-    style.map("TEntry", fieldbackground=[("readonly", "#f2f6fa")], bordercolor=[("focus", TEAL)])
-
-    style.configure("TNotebook", background=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
-    style.configure("TNotebook.Tab", background="#e2eaf2", foreground=MUTED, padding=(16, 9), font=strong)
-    style.map(
-        "TNotebook.Tab", background=[("selected", SURFACE), ("active", "#d7e4ef")],
-        foreground=[("selected", TEAL)],
+    style.map("Current.Nav.TButton", background=[("active", SELECTED)], bordercolor=[("focus", MINT)])
+    style.configure(
+        "TEntry", fieldbackground=SIDEBAR, foreground=INK, insertcolor=INK,
+        selectbackground=SELECTED, selectforeground=INK, padding=(9, 8), bordercolor=BORDER,
+        lightcolor=SIDEBAR, darkcolor=SIDEBAR,
     )
+    style.map("TEntry", fieldbackground=[("readonly", SIDEBAR)], bordercolor=[("focus", MINT)])
+    style.configure("TScrollbar", background=BORDER, troughcolor=SIDEBAR, bordercolor=SIDEBAR)
     style.configure(
         "Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=INK,
-        rowheight=31, bordercolor=BORDER,
+        rowheight=34, bordercolor=BORDER, lightcolor=SURFACE, darkcolor=SURFACE,
     )
     style.map("Treeview", background=[("selected", SELECTED)], foreground=[("selected", INK)])
     style.configure(
-        "Treeview.Heading", background="#e7eff6", foreground=INK, font=strong,
-        bordercolor=BORDER, padding=(8, 8),
+        "Treeview.Heading", background="#263641", foreground=INK, font=strong,
+        bordercolor=BORDER, padding=(8, 9), lightcolor="#263641", darkcolor="#263641",
     )
-    return style
 
 
-def stripe_table(table):
-    table.tag_configure("alternate", background="#f3f7fb")
+def style_activity_table(table):
+    table.tag_configure("alternate", background="#1d2a34")
+    table.tag_configure("confirmed", foreground=MINT)
+    table.tag_configure("pending", foreground=WARNING)
+    table.tag_configure("failed", foreground=ERROR)
