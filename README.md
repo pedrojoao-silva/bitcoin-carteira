@@ -19,6 +19,63 @@ dependências Python. Instale o Bitcoin Core separadamente e deixe
 `bitcoind` e `bitcoin-cli` disponíveis no PATH para usar saldo, histórico e
 envio. A beta opera apenas nessas duas redes de teste.
 
+## Windows com Ubuntu no WSL 2
+
+Peça o arquivo `bitcoin-carteira_0.1.0~beta4_all.deb` a quem preparou a
+beta. Com o instalador em mãos, você pode usar a carteira sem Git ou conta
+no GitHub.
+
+### 1. Instalar o Ubuntu
+
+Abra o **PowerShell como administrador** e execute:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Reinicie o Windows, abra **Ubuntu** pelo menu Iniciar e crie seu usuário e
+sua senha do Ubuntu. Se já tiver Ubuntu no WSL, rode `wsl --update` e
+`wsl -l -v` no PowerShell. A coluna `VERSION` deve mostrar `2`.
+A janela gráfica requer Windows 11 ou Windows 10 build 19044 ou mais
+recente. [Guia da Microsoft para aplicativos gráficos no WSL](https://learn.microsoft.com/pt-br/windows/wsl/tutorials/gui-apps)
+
+### 2. Instalar e abrir a carteira
+
+No **terminal Ubuntu**, abra sua pasta pessoal no Explorador do Windows:
+
+```sh
+cd ~
+explorer.exe .
+```
+
+Copie o arquivo `.deb` para a pasta que abriu. Volte ao terminal Ubuntu:
+
+```sh
+sudo apt update
+sudo apt install './bitcoin-carteira_0.1.0~beta4_all.deb'
+bitcoin-carteira --network signet
+```
+
+### 3. Conectar o Bitcoin Core para testar pagamentos
+
+A janela da carteira abre sem o nó. Para consultar saldo, histórico e
+enviar, instale o Bitcoin Core **para Linux dentro do Ubuntu**. Rode
+`uname -m` para escolher o arquivo oficial (Linux x86-64 para `x86_64`,
+ou ARM Linux 64-bit para `aarch64`). Siga as instruções de verificação
+da página oficial e extraia o arquivo. [Download e verificação do Bitcoin Core](https://bitcoincore.org/en/download/)
+
+No terminal Ubuntu, a partir da pasta extraída que contém `bin/`, execute:
+
+```sh
+sudo install -m 755 bin/bitcoind bin/bitcoin-cli /usr/local/bin/
+bitcoind -signet -prune=0 -blockfilterindex=1 -daemonwait
+bitcoin-cli -signet getblockchaininfo
+```
+
+Quando aparecerem `"chain": "signet"` e `"initialblockdownload": false`,
+clique em **Verificar nó** na carteira. Crie a sua carteira de teste, abra
+**Receber** e compartilhe apenas o endereço `tb1q…` com quem vai enviar.
+
 ## Executar pelo código-fonte
 
 Instale as dependências Python em um ambiente virtual:
