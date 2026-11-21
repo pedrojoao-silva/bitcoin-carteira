@@ -2,7 +2,23 @@
 
 Protótipo desktop para Linux com Python e Tkinter. A interface cria e abre carteiras de teste BIP39 e exibe endereços SegWit em regtest.
 
-## Executar
+## Beta para Linux
+
+O pacote `.deb` é destinado ao Ubuntu, Zorin OS e distribuições compatíveis.
+Para gerar e instalar localmente, rode na raiz do projeto:
+
+```sh
+sh packaging/linux/build-deb.sh
+sudo apt install './dist/bitcoin-carteira_0.1.0~beta1_all.deb'
+```
+
+Abra **Carteira Bitcoin** no menu de aplicativos ou execute
+`bitcoin-carteira` no terminal. O pacote instala apenas a carteira e suas
+dependências Python. Instale o Bitcoin Core separadamente e deixe
+`bitcoind` e `bitcoin-cli` disponíveis no PATH para usar saldo, histórico e
+envio. A beta opera exclusivamente em `regtest`.
+
+## Executar pelo código-fonte
 
 Instale as dependências Python em um ambiente virtual:
 

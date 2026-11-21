@@ -2,6 +2,7 @@ import json
 import subprocess
 import tkinter as tk
 from decimal import Decimal
+from pathlib import Path
 from queue import Empty, Queue
 from threading import Lock, Thread
 from tkinter import messagebox, simpledialog, ttk
@@ -114,16 +115,18 @@ def run_node_task(window, calculate, show):
 
 class WalletApp(tk.Tk):
     def __init__(self):
-        super().__init__()
+        super().__init__(className="BitcoinCarteira")
         self.title("Carteira Bitcoin")
         self.geometry("790x670")
         self.minsize(620, 560)
+        image = tk.PhotoImage(file=Path(__file__).with_name("assets") / "logo.png")
+        self.logo = image.subsample(20)
+        self.iconphoto(True, image.subsample(5), self.logo)
         self.entry_panel = self.build_entry_panel()
         self.wallet_panel = ttk.Frame(self, padding=24)
         self.session_version = 0
         panel = self.wallet_panel
-        ttk.Label(panel, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
-        ttk.Label(panel, text="Rede local de testes · regtest").pack(anchor="w", pady=(4, 20))
+        self.build_header(panel)
         ttk.Label(panel, text="Saldo confirmado · regtest").pack(anchor="w")
         self.balance = tk.StringVar(value="—")
         ttk.Label(panel, textvariable=self.balance, font=("TkDefaultFont", 28, "bold")).pack(
@@ -185,13 +188,21 @@ class WalletApp(tk.Tk):
 
     def build_entry_panel(self):
         panel = ttk.Frame(self, padding=24)
-        ttk.Label(panel, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
-        ttk.Label(panel, text="Rede local de testes · regtest").pack(anchor="w", pady=(4, 20))
+        self.build_header(panel)
         self.create_button = ttk.Button(panel, text="Criar carteira", command=self.create_phrase)
         self.create_button.pack(anchor="w", pady=(0, 8))
         self.open_button = ttk.Button(panel, text="Abrir carteira existente", command=self.open_existing)
         self.open_button.pack(anchor="w")
         return panel
+
+    def build_header(self, panel):
+        header = ttk.Frame(panel)
+        header.pack(fill="x", pady=(0, 14))
+        ttk.Label(header, image=self.logo).pack(side="left", padx=(0, 10))
+        labels = ttk.Frame(header)
+        labels.pack(side="left")
+        ttk.Label(labels, text="Carteira Bitcoin", font=("TkDefaultFont", 23, "bold")).pack(anchor="w")
+        ttk.Label(labels, text="Rede local de testes · regtest").pack(anchor="w")
 
     def show_entry(self):
         exists = RECOVERY_FILE.is_file()

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Carteira Bitcoin
+Comment=Carteira Bitcoin para a rede local de testes regtest
+Exec=/usr/bin/bitcoin-carteira
+Icon=/usr/share/bitcoin-carteira/assets/logo.png
+Terminal=false
+Categories=Office;Finance;
+StartupWMClass=BitcoinCarteira
