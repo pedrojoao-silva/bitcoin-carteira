@@ -22,7 +22,7 @@ class SendSafetyTests(unittest.TestCase):
         draft = Mock(destination="test-destination", amount=100_000, change=50_000, fee=142, total=100_142)
         buttons = {}
 
-        def button(_parent, *, text, command):
+        def button(_parent, *, text, command, **_options):
             buttons[text] = command
             return Mock()
 

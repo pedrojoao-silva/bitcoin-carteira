@@ -3,7 +3,7 @@ set -eu
 
 packaging_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH='' cd -- "$packaging_dir/../.." && pwd)
-version='0.1.0~beta2'
+version='0.1.0~beta3'
 output_dir="$project_dir/dist"
 package="$output_dir/bitcoin-carteira_${version}_all.deb"
 staging=$(mktemp -d)
@@ -27,7 +27,7 @@ Description: Carteira Bitcoin desktop para regtest e Signet
  Usa um nó Bitcoin Core instalado separadamente.
 CONTROL
 
-for module in addresses app history networks recovery sending signing watching; do
+for module in addresses app appearance history networks recovery sending signing watching; do
     install -m 0644 "$project_dir/$module.py" "$staging/usr/share/bitcoin-carteira/"
 done
 install -m 0644 "$project_dir/assets/logo.png" "$staging/usr/share/bitcoin-carteira/assets/"

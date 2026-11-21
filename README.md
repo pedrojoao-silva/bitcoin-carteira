@@ -9,7 +9,7 @@ Para gerar e instalar localmente, rode na raiz do projeto:
 
 ```sh
 sh packaging/linux/build-deb.sh
-sudo apt install './dist/bitcoin-carteira_0.1.0~beta2_all.deb'
+sudo apt install './dist/bitcoin-carteira_0.1.0~beta3_all.deb'
 ```
 
 Abra **Carteira Bitcoin** para regtest ou **Carteira Bitcoin (Signet)**
@@ -73,7 +73,7 @@ e só entrega novos endereços dentro dessa faixa.
 
 ## Saldo e recebimentos em regtest
 
-Abra a carteira e clique em **Consultar saldo confirmado** para atualizar manualmente.
+Abra a carteira e clique em **Atualizar saldo** para consultar manualmente.
 O saldo em sats aparece no topo da janela e é atualizado automaticamente
 enquanto o endereço está visível.
 O Bitcoin Core consulta as saídas ainda não gastas desse endereço no bloco
@@ -152,7 +152,8 @@ voltam a aparecer depois de fechar e reabrir o aplicativo.
 Um envio aparece como **Pendente** quando está na mempool e **Confirmado no
 destino** quando entra em um bloco. Isso confirma o pagamento no endereço
 informado. A aba mostra o valor, a taxa e as confirmações. Selecione a linha
-para ver o endereço e o txid.
+para ver o endereço e o txid. O botão **Copiar TXID** copia o identificador
+selecionado. No painel **Receber**, **Copiar endereço** copia o endereço exibido.
 
 Para testar de ponta a ponta em regtest, gere 101 blocos para o endereço
 de origem, envie para outro endereço regtest e mine mais um bloco. Confira
